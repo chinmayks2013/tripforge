@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+    --card: 222 47% 9%;
+    --border: 217 33% 17%;
+    --muted: 215 20% 55%;
+    --accent: 174 72% 40%;
+  }
+
+  body {
+    @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))] antialiased;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-brand-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent;
+  }
+
+  .agent-glow {
+    box-shadow: 0 0 20px rgba(20, 184, 166, 0.15);
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.leaflet-container {
+  display: none;
+}
+
+.trip-map-shell {
+  isolation: isolate;
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.custom-marker,
+.traveler-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.traveler-pulse {
+  animation: travelerPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes travelerPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.4), 0 2px 12px rgba(0, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(20, 184, 166, 0.15), 0 2px 12px rgba(0, 0, 0, 0.5);
+  }
+}
