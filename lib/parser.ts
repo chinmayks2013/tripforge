@@ -49,6 +49,9 @@ function extractDurationHours(query: string): number | undefined {
   if (hourMatch) {
     return parseInt(hourMatch[1], 10);
   }
+  if (lower.includes("day trip") || lower.includes("day-trip")) {
+    return 10;
+  }
   if (lower.includes("half day") || lower.includes("half-day")) {
     return 12;
   }

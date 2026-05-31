@@ -16,7 +16,7 @@ export type AgentId =
 export interface AgentStatus {
   id: AgentId;
   name: string;
-  status: "idle" | "searching" | "optimizing" | "complete" | "error";
+  status: "idle" | "searching" | "optimizing" | "complete" | "skipped" | "error";
   progress: number;
   message: string;
   savingsFound?: number;

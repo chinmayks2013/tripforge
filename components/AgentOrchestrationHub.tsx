@@ -55,6 +55,7 @@ export default function AgentOrchestrationHub({
     (a) => a.status === "searching" || a.status === "optimizing"
   );
   const completeCount = agents.filter((a) => a.status === "complete").length;
+  const skippedCount = agents.filter((a) => a.status === "skipped").length;
   const currentStep = activeWave ?? (workingAgent ? SEQUENTIAL_ORDER.indexOf(workingAgent.id as AgentId) + 1 : 0);
 
   return (
@@ -69,7 +70,11 @@ export default function AgentOrchestrationHub({
               ? `Running ${AGENT_META[workingAgent.id as AgentId].name}…`
               : completeCount === agents.length
                 ? "All 9 agents complete"
-                : "Waiting for next agent…"}
+                : skippedCount === agents.length
+                  ? "Agent not triggered"
+                  : completeCount + skippedCount === agents.length
+                    ? "Some agents were not triggered"
+                    : "Waiting for next agent…"}
           </p>
         </div>
         {currentStep > 0 && (

@@ -127,7 +127,27 @@ export default function Home() {
           tasks?: TaskPlanItem[];
           style?: string;
         };
-        if (tasks?.length && style === "balanced") setTaskPlan(tasks);
+        if (style === "balanced") {
+          setTaskPlan(tasks ?? []);
+          if (tasks) {
+            const activeIds = new Set(tasks.map((task) => task.agentId));
+            setAgents((prev) =>
+              prev.map((agent) =>
+                activeIds.has(agent.id)
+                  ? agent
+                  : {
+                      ...agent,
+                      status: "skipped",
+                      progress: 0,
+                      assignedTask: undefined,
+                      taskObjective: undefined,
+                      message: "Agent not triggered",
+                      lastUpdate: Date.now(),
+                    }
+              )
+            );
+          }
+        }
         break;
       }
 
