@@ -6,6 +6,7 @@ import { TravelPlan, TravelStyle, STYLE_LABELS } from "@/lib/types";
 import clsx from "clsx";
 import CostBreakdown from "./CostBreakdown";
 import OpportunitiesPanel from "./OpportunitiesPanel";
+import CostAccuracyBanner from "./CostAccuracyBanner";
 
 interface PlanComparisonProps {
   plans: TravelPlan[];
@@ -94,6 +95,10 @@ export default function PlanComparison({ plans }: PlanComparisonProps) {
           );
         })}
       </div>
+
+      {selectedPlan.costAudit && (
+        <CostAccuracyBanner audit={selectedPlan.costAudit} />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <CostBreakdown plan={selectedPlan} />

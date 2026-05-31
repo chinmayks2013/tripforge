@@ -43,22 +43,39 @@ export default function StaticRouteMap({
 }: StaticRouteMapProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [mapImage, setMapImage] = useState<string | null>(null);
+  const [mapFailed, setMapFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const allLats = stops.map((s) => s.lat);
   const allLngs = stops.map((s) => s.lng);
-  if (userLocation) {
-    allLats.push(userLocation.lat);
-    allLngs.push(userLocation.lng);
+
+  // Only include user location on map when reasonably near the trip (avoids broken world-wide tiles)
+  let showUserOnMap = false;
+  if (userLocation && stops.length > 0) {
+    const centerLat = stops.reduce((s, p) => s + p.lat, 0) / stops.length;
+    const centerLng = stops.reduce((s, p) => s + p.lng, 0) / stops.length;
+    const approxMi =
+      Math.abs(userLocation.lat - centerLat) * 69 +
+      Math.abs(userLocation.lng - centerLng) * 54;
+    if (approxMi < 400) {
+      allLats.push(userLocation.lat);
+      allLngs.push(userLocation.lng);
+      showUserOnMap = true;
+    }
   }
+
+  const safeLats = allLats.length ? allLats : [route.center.lat];
+  const safeLngs = allLngs.length ? allLngs : [route.center.lng];
+
   const bounds = {
-    minLat: Math.min(...allLats) - 0.02,
-    maxLat: Math.max(...allLats) + 0.02,
-    minLng: Math.min(...allLngs) - 0.02,
-    maxLng: Math.max(...allLngs) + 0.02,
+    minLat: Math.min(...safeLats) - 0.02,
+    maxLat: Math.max(...safeLats) + 0.02,
+    minLng: Math.min(...safeLngs) - 0.02,
+    maxLng: Math.max(...safeLngs) + 0.02,
   };
 
   useEffect(() => {
+    setMapFailed(false);
     const bbox = `${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}`;
     const url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${bbox}&bboxSR=4326&size=800,480&format=png&f=image`;
     setMapImage(url);
@@ -75,24 +92,36 @@ export default function StaticRouteMap({
   const points = stops.map((s) => projectStop(s.lat, s.lng, bounds));
   const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
 
-  const originPoint = userLocation
-    ? projectStop(userLocation.lat, userLocation.lng, bounds)
-    : null;
+  const originPoint =
+    showUserOnMap && userLocation
+      ? projectStop(userLocation.lat, userLocation.lng, bounds)
+      : null;
 
   return (
     <div
       ref={containerRef}
-      className="relative rounded-2xl overflow-hidden border border-white/10 bg-slate-900 isolate"
+      className="relative rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-br from-slate-800 to-slate-950 isolate"
       style={{ height: 420 }}
     >
-      {/* Satellite background — no interactive map library */}
-      {mapImage && (
+      {/* Satellite background */}
+      {mapImage && !mapFailed && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={mapImage}
           alt="Satellite view"
           className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
           draggable={false}
+          onError={() => setMapFailed(true)}
+        />
+      )}
+      {mapFailed && (
+        <div
+          className="absolute inset-0 opacity-30 pointer-events-none"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(20,184,166,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(20,184,166,0.08) 1px, transparent 1px)",
+            backgroundSize: "32px 32px",
+          }}
         />
       )}
       <div className="absolute inset-0 bg-slate-900/20 pointer-events-none" />
@@ -192,7 +221,7 @@ export default function StaticRouteMap({
         </button>
       </div>
 
-      {originPoint && userLocation && (
+      {originPoint && showUserOnMap && userLocation && (
         <div
           className="absolute z-10 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
           style={{ left: `${originPoint.x}%`, top: `${originPoint.y}%` }}

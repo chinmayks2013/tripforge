@@ -57,12 +57,37 @@ function extractDuration(query: string): number {
   return 5;
 }
 
+/** Only extract budget when the user explicitly mentions spending limits — never from "5 days" or "2 people". */
 function extractBudget(query: string): number | undefined {
-  const m = query.match(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(?:budget|max|limit|total|usd)?/i);
-  if (m) return parseInt(m[1].replace(/,/g, ""), 10);
-  const underMatch = query.match(/under\s+\$?\s*(\d+)/i);
-  if (underMatch) return parseInt(underMatch[1], 10);
+  const patterns = [
+    /(?:budget|max(?:imum)?|limit|cap|spend(?:ing)?)\s*(?:of|is|at|:)?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i,
+    /\$?\s*([\d,]+(?:\.\d{2})?)\s*(?:budget|max(?:imum)?|limit|total|cap|usd)/i,
+    /(?:under|below|less than|up to)\s+\$?\s*([\d,]+)/i,
+  ];
+  for (const re of patterns) {
+    const m = query.match(re);
+    if (m) {
+      const amount = parseInt(m[1].replace(/,/g, ""), 10);
+      if (!Number.isNaN(amount) && amount > 0) return amount;
+    }
+  }
   return undefined;
+}
+
+function parseBudgetAssumptionValue(val: string): number | undefined {
+  const lower = val.toLowerCase();
+  if (
+    lower === "flexible" ||
+    lower.includes("no limit") ||
+    lower.includes("no strict") ||
+    lower.includes("not specified")
+  ) {
+    return undefined;
+  }
+  const digits = val.replace(/[^\d]/g, "");
+  if (!digits) return undefined;
+  const amount = parseInt(digits, 10);
+  return Number.isNaN(amount) || amount <= 0 ? undefined : amount;
 }
 
 function extractOrigin(query: string): string | undefined {
@@ -114,8 +139,31 @@ function hasCar(query: string): boolean {
   );
 }
 
+function extractPartyTrip(query: string): { isPartyTrip: boolean; partyType?: string } {
+  const lower = query.toLowerCase();
+  const types: Record<string, string> = {
+    "bachelor party": "bachelor party",
+    "bachelorette": "bachelorette party",
+    birthday: "birthday celebration",
+    anniversary: "anniversary",
+    wedding: "wedding celebration",
+    reunion: "reunion",
+    celebration: "celebration",
+    "night out": "nightlife",
+    nightlife: "nightlife",
+    "stag do": "stag party",
+    "hen do": "hen party",
+  };
+  for (const [kw, label] of Object.entries(types)) {
+    if (lower.includes(kw)) return { isPartyTrip: true, partyType: label };
+  }
+  if (/\bparty\b/.test(lower)) return { isPartyTrip: true, partyType: "group celebration" };
+  return { isPartyTrip: false };
+}
+
 export function parseNaturalLanguage(query: string): ParsedRequest {
   const destination = extractDestination(query);
+  const party = extractPartyTrip(query);
   return {
     destination,
     origin: extractOrigin(query),
@@ -125,6 +173,8 @@ export function parseNaturalLanguage(query: string): ParsedRequest {
     interests: extractInterests(query),
     hasCar: hasCar(query),
     hasMemberships: extractMemberships(query),
+    isPartyTrip: party.isPartyTrip,
+    partyType: party.partyType,
     rawQuery: query,
   };
 }
@@ -232,13 +282,29 @@ export function generateAssumptions(request: ParsedRequest): Assumption[] {
     status: "pending",
   });
 
-  if (!request.budget) {
+  if (request.budget == null) {
     assumptions.push({
       id: "budget",
       field: "budget",
       label: "Total budget",
-      assumedValue: "No strict limit — optimize for value",
+      assumedValue: "Not specified — no spending cap (you didn't mention a budget)",
       confidence: "low",
+      options: [
+        { id: "1000", label: "Under $1,000", value: "1000" },
+        { id: "2000", label: "Under $2,000", value: "2000" },
+        { id: "3000", label: "Under $3,000", value: "3000" },
+        { id: "5000", label: "Under $5,000", value: "5000" },
+        { id: "flexible", label: "No limit — optimize for value", value: "flexible" },
+      ],
+      status: "pending",
+    });
+  } else {
+    assumptions.push({
+      id: "budget",
+      field: "budget",
+      label: "Total budget",
+      assumedValue: `$${request.budget.toLocaleString()} (from your message)`,
+      confidence: "high",
       options: [
         { id: "1000", label: "Under $1,000", value: "1000" },
         { id: "2000", label: "Under $2,000", value: "2000" },
@@ -291,7 +357,7 @@ export function applyAssumptionUpdates(
         updated.hasCar = val === "rental" || val === "own";
         break;
       case "budget":
-        if (val !== "flexible") updated.budget = parseInt(val, 10);
+        updated.budget = parseBudgetAssumptionValue(val);
         break;
       case "destination":
         updated.destination = val;

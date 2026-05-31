@@ -13,14 +13,12 @@ const COLOR_MAP: Record<string, string> = {
   "agent-flight": "#6366f1",
   "agent-lodging": "#8b5cf6",
   "agent-transport": "#06b6d4",
-  "agent-parking": "#64748b",
   "agent-attractions": "#f59e0b",
-  "agent-discounts": "#10b981",
-  "agent-memberships": "#ec4899",
-  "agent-passes": "#3b82f6",
+  "agent-savings": "#10b981",
   "agent-group": "#f97316",
   "agent-routing": "#84cc16",
   "agent-budget": "#ef4444",
+  "agent-efficiency": "#22d3ee",
 };
 
 export default function AgentDashboard({ agents, isActive }: AgentDashboardProps) {
@@ -42,7 +40,7 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
           <p className="text-xs text-white/50 mt-0.5">
             {activeCount > 0
               ? `${activeCount} agents working in parallel`
-              : `${completeCount}/11 agents complete`}
+              : `${completeCount}/${agents.length} agents complete`}
           </p>
         </div>
         {totalSavings > 0 && (
@@ -96,8 +94,13 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
                       {meta.name}
                     </div>
                     <div className="text-[10px] text-white/40 truncate mt-0.5">
-                      {agent.message}
+                      {agent.assignedTask ?? agent.message}
                     </div>
+                    {agent.taskObjective && agent.status !== "idle" && (
+                      <div className="text-[9px] text-white/25 truncate mt-0.5 leading-tight">
+                        {agent.taskObjective}
+                      </div>
+                    )}
 
                     {(isWorking || isComplete) && (
                       <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">

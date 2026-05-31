@@ -4,6 +4,7 @@ import { TravelOrchestrator } from "@/lib/orchestrator";
 import { AgentEvent, Assumption, UserLocation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -31,7 +32,9 @@ export async function POST(req: NextRequest) {
             ...applyAssumptionUpdates(baseRequest, assumptions),
             userLocation,
           };
-          const orchestrator = new TravelOrchestrator(send);
+          const orchestrator = new TravelOrchestrator((event) => {
+            send(event);
+          });
           const result = await orchestrator.rerunAgents(updatedRequest);
           send({
             type: "orchestrator_complete",
@@ -40,7 +43,9 @@ export async function POST(req: NextRequest) {
           });
         } else if (query) {
           const request = { ...parseNaturalLanguage(query), userLocation };
-          const orchestrator = new TravelOrchestrator(send);
+          const orchestrator = new TravelOrchestrator((event) => {
+            send(event);
+          });
           const result = await orchestrator.optimize(request);
           send({
             type: "orchestrator_complete",
@@ -69,8 +74,9 @@ export async function POST(req: NextRequest) {
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

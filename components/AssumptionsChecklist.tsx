@@ -80,7 +80,8 @@ export default function AssumptionsChecklist({
             )}
           </h3>
           <p className="text-xs text-white/40 mt-0.5">
-            Confirm, reject, or modify — agents rerun in real time
+            Review what we guessed — confirm, reject, or change any item. Agents
+            only use a budget cap if you set one here or in your message.
           </p>
         </div>
         <ChevronDown

@@ -25,9 +25,23 @@ function haversineMi(lat1: number, lng1: number, lat2: number, lng2: number) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  ms = 6000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function geocodeCity(query: string) {
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
   const data = await res.json();
   if (!data?.[0]) return null;
   return {
@@ -39,7 +53,7 @@ async function geocodeCity(query: string) {
 
 async function fetchWeather(lat: number, lng: number) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   const data = await res.json();
   const c = data?.current;
   if (!c) return undefined;
@@ -56,7 +70,7 @@ async function fetchWeather(lat: number, lng: number) {
 async function fetchWikiSummary(city: string) {
   try {
     const title = city.charAt(0).toUpperCase() + city.slice(1);
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`
     );
     if (!res.ok) return undefined;
@@ -96,11 +110,11 @@ export async function scrapeTripData(
   }
 
   onProgress?.("Fetching live weather (Open-Meteo)…");
-  const weather = await fetchWeather(destGeo.lat, destGeo.lng);
+  const [weather, wiki] = await Promise.all([
+    fetchWeather(destGeo.lat, destGeo.lng).catch(() => undefined),
+    fetchWikiSummary(destination).catch(() => undefined),
+  ]);
   if (weather) sources.push({ name: "Open-Meteo", url: "https://open-meteo.com" });
-
-  onProgress?.("Scraping Wikipedia for AI context…");
-  const wiki = await fetchWikiSummary(destination);
   if (wiki) sources.push({ name: "Wikipedia", url: "https://wikipedia.org" });
 
   onProgress?.("AI structuring scraped data for agents…");
@@ -125,7 +139,7 @@ export async function scrapeTripData(
 
 export async function reverseGeocode(lat: number, lng: number) {
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
   const data = await res.json();
   const addr = data.address ?? {};
   return {

@@ -4,14 +4,12 @@ export type AgentId =
   | "flight"
   | "lodging"
   | "transport"
-  | "parking"
   | "attractions"
-  | "discounts"
-  | "memberships"
-  | "passes"
+  | "savings"
   | "group"
   | "routing"
-  | "budget";
+  | "budget"
+  | "efficiency";
 
 export interface AgentStatus {
   id: AgentId;
@@ -21,6 +19,9 @@ export interface AgentStatus {
   message: string;
   savingsFound?: number;
   lastUpdate: number;
+  /** Current task assigned by the orchestrator */
+  assignedTask?: string;
+  taskObjective?: string;
 }
 
 export interface ParsedRequest {
@@ -35,6 +36,9 @@ export interface ParsedRequest {
   hasCar: boolean;
   hasMemberships: string[];
   rawQuery: string;
+  /** Event / celebration trip (bachelor party, birthday, etc.) */
+  isPartyTrip?: boolean;
+  partyType?: string;
   userLocation?: UserLocation;
   scrapedData?: ScrapedTripData;
 }
@@ -102,6 +106,20 @@ export interface HiddenOpportunity {
   applied: boolean;
 }
 
+export interface CostAuditReport {
+  feasible: boolean;
+  minRealisticTotal: number;
+  verifiedTotal: number;
+  originalTotal: number;
+  correctionsApplied: number;
+  confidence: "high" | "medium" | "low";
+  budgetGap?: number;
+  creditsApplied?: number;
+  message: string;
+  categoryFloors: { category: string; floor: number; source: string }[];
+  flags: string[];
+}
+
 export interface TravelPlan {
   id: string;
   style: TravelStyle;
@@ -114,6 +132,7 @@ export interface TravelPlan {
   opportunities: HiddenOpportunity[];
   summary: string;
   highlights: string[];
+  costAudit?: CostAuditReport;
 }
 
 export interface ItineraryStop {
@@ -206,6 +225,10 @@ export interface AgentEvent {
     | "assumptions_ready"
     | "scrape_progress"
     | "scrape_complete"
+    | "task_plan_ready"
+    | "task_wave_start"
+    | "task_assigned"
+    | "task_complete"
     | "error";
   agentId?: AgentId;
   data: Record<string, unknown>;
@@ -232,55 +255,43 @@ export const AGENT_META: Record<
     name: "Transport Agent",
     icon: "🚌",
     color: "agent-transport",
-    description: "Transit bundles, rideshare vs public transit optimization",
-  },
-  parking: {
-    name: "Parking Agent",
-    icon: "🅿️",
-    color: "agent-parking",
-    description: "Garage discounts, street parking rules, park-and-ride",
+    description: "Ground transport, city transit passes, parking, and park-and-ride",
   },
   attractions: {
     name: "Attractions Agent",
     icon: "🎭",
     color: "agent-attractions",
-    description: "Free entry days, combo tickets, off-peak pricing",
+    description: "Activities, events, nightlife, celebrations, and city pass entry",
   },
-  discounts: {
-    name: "Discounts Agent",
-    icon: "🏷️",
-    color: "agent-discounts",
-    description: "Coupons, promo codes, seasonal deals, student discounts",
-  },
-  memberships: {
-    name: "Memberships Agent",
-    icon: "💳",
-    color: "agent-memberships",
-    description: "AAA, Costco Travel, credit card perks, loyalty programs",
-  },
-  passes: {
-    name: "Local Passes Agent",
-    icon: "🎫",
-    color: "agent-passes",
-    description: "City passes, museum bundles, transit day passes",
+  savings: {
+    name: "Savings Agent",
+    icon: "💰",
+    color: "agent-savings",
+    description: "Promo codes, seasonal deals, loyalty cards, and membership perks",
   },
   group: {
     name: "Group Agent",
     icon: "👥",
     color: "agent-group",
-    description: "Group rates, split costs, shared accommodations",
+    description: "Group rates, cost splitting, role assignment, and party size logic",
   },
   routing: {
     name: "Routing Agent",
     icon: "🗺️",
     color: "agent-routing",
-    description: "Optimal day-by-day routing to minimize transit costs",
+    description: "Day-order optimization and map sequencing",
   },
   budget: {
     name: "Budget Agent",
     icon: "📊",
     color: "agent-budget",
-    description: "Cross-category optimization and trade-off analysis",
+    description: "Cross-cutting constraint optimization across all agents",
+  },
+  efficiency: {
+    name: "Cost Efficiency Agent",
+    icon: "🎯",
+    color: "agent-efficiency",
+    description: "Verifies estimates against live route data and realistic cost floors",
   },
 };
 

@@ -1,12 +1,14 @@
 import {
   AgentId,
   AgentStatus,
+  CostAuditReport,
   CostLineItem,
   HiddenOpportunity,
   ParsedRequest,
   TravelStyle,
 } from "../types";
 import { getDestinationData } from "../parser";
+import { auditAndRecalibratePlan } from "../cost/accuracy";
 
 export interface AgentResult {
   agentId: AgentId;
@@ -14,6 +16,8 @@ export interface AgentResult {
   opportunities: HiddenOpportunity[];
   savings: number;
   message: string;
+  costAudit?: CostAuditReport;
+  verifiedLineItems?: CostLineItem[];
 }
 
 export type ProgressCallback = (
@@ -27,8 +31,13 @@ function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function randomBetween(min: number, max: number) {
-  return Math.floor(min + Math.random() * (max - min));
+/** ~40ms per step — enough for SSE animation, not minutes of waiting */
+function agentPause() {
+  return delay(40);
+}
+
+function randomBetween(_min: number, _max: number) {
+  return 0;
 }
 
 export async function runFlightAgent(
@@ -83,7 +92,7 @@ export async function runFlightAgent(
   }
 
   onProgress("flight", 90, `Found ${opportunities.length} flight optimizations`, baseCost - optimizedCost);
-  await delay(200);
+  await delay(40);
 
   return {
     agentId: "flight",
@@ -183,16 +192,19 @@ export async function runTransportAgent(
   onProgress: ProgressCallback
 ): Promise<AgentResult> {
   const days = request.duration ?? 5;
-  onProgress("transport", 20, "Analyzing transit vs rideshare costs...");
+  const dest = getDestinationData(request.destination);
+
+  onProgress("transport", 15, "Analyzing ground transport + city transit passes...");
   await delay(randomBetween(350, 650));
 
-  onProgress("transport", 55, "Checking multi-day transit pass bundles...");
+  onProgress("transport", 40, "Comparing multi-day transit pass vs pay-per-ride...");
   await delay(randomBetween(300, 500));
 
   const styleMult = style === "budget" ? 0.4 : style === "luxury" ? 2.0 : 1.0;
-  const baseCost = Math.round((35 * days * request.groupSize + (request.hasCar ? 200 : 0)) * styleMult);
+  let baseCost = Math.round((35 * days * request.groupSize + (request.hasCar ? 200 : 0)) * styleMult);
   let optimizedCost = baseCost;
   const opportunities: HiddenOpportunity[] = [];
+  const lineItems: CostLineItem[] = [];
 
   const passSave = Math.round(baseCost * 0.35);
   opportunities.push({
@@ -206,81 +218,69 @@ export async function runTransportAgent(
   });
   if (!request.hasCar) optimizedCost -= passSave;
 
-  onProgress("transport", 90, "Transit bundle applied", passSave);
+  // Absorbed: local passes (transit portion)
+  const cityPassTransitSave = Math.round(18 * days * request.groupSize);
+  opportunities.push({
+    id: "transport-city-pass-transit",
+    title: `${request.destination.charAt(0).toUpperCase() + request.destination.slice(1)} City Pass — Transit Included`,
+    description: "City card bundles unlimited transit with attraction entry",
+    savings: cityPassTransitSave,
+    category: "Local Passes",
+    agentId: "transport",
+    applied: !request.hasCar && style !== "luxury",
+  });
+  if (!request.hasCar && style !== "luxury") optimizedCost -= cityPassTransitSave;
+
+  lineItems.push({
+    category: "Transport",
+    description: request.hasCar ? "Rental car + fuel + transit pass" : "Public transit + city pass transit",
+    baseCost,
+    optimizedCost,
+    savings: baseCost - optimizedCost,
+    savingsSource: "Transit & city pass bundle",
+    agentId: "transport",
+  });
+
+  // Absorbed: parking (ground transport domain)
+  if (request.hasCar) {
+    onProgress("transport", 60, "Scanning parking garages and park-and-ride...");
+    await delay(randomBetween(300, 500));
+
+    const parkingBase = Math.round(25 * days);
+    let parkingOpt = parkingBase;
+    const parkRideSave = Math.round(parkingBase * 0.45);
+    opportunities.push({
+      id: "transport-parkride",
+      title: "Park-and-Ride Strategy",
+      description: "Park at suburban lot ($5/day) + transit into city center",
+      savings: parkRideSave,
+      category: "Parking",
+      agentId: "transport",
+      applied: style !== "luxury",
+    });
+    if (style !== "luxury") parkingOpt -= parkRideSave;
+
+    baseCost += parkingBase;
+    optimizedCost += parkingOpt;
+    lineItems.push({
+      category: "Parking",
+      description: `${days} days parking (park-and-ride optimized)`,
+      baseCost: parkingBase,
+      optimizedCost: parkingOpt,
+      savings: parkingBase - parkingOpt,
+      savingsSource: "Park-and-Ride",
+      agentId: "transport",
+    });
+  }
+
+  onProgress("transport", 90, "Ground transport + passes optimized", baseCost - optimizedCost);
 
   return {
     agentId: "transport",
-    lineItems: [
-      {
-        category: "Transport",
-        description: request.hasCar ? "Rental car + fuel" : "Public transit + occasional rideshare",
-        baseCost,
-        optimizedCost,
-        savings: baseCost - optimizedCost,
-        savingsSource: "7-Day Transit Pass",
-        agentId: "transport",
-      },
-    ],
+    lineItems,
     opportunities,
     savings: baseCost - optimizedCost,
-    message: `Transport optimized with transit bundle`,
-  };
-}
-
-export async function runParkingAgent(
-  request: ParsedRequest,
-  style: TravelStyle,
-  onProgress: ProgressCallback
-): Promise<AgentResult> {
-  onProgress("parking", 25, "Scanning parking garages and street rules...");
-  await delay(randomBetween(300, 500));
-
-  if (!request.hasCar) {
-    onProgress("parking", 100, "No car — parking not needed");
-    return {
-      agentId: "parking",
-      lineItems: [],
-      opportunities: [],
-      savings: 0,
-      message: "No parking needed (no car)",
-    };
-  }
-
-  const days = request.duration ?? 5;
-  const baseCost = Math.round(25 * days);
-  let optimizedCost = baseCost;
-  const opportunities: HiddenOpportunity[] = [];
-
-  const parkRideSave = Math.round(baseCost * 0.45);
-  opportunities.push({
-    id: "parking-parkride",
-    title: "Park-and-Ride Strategy",
-    description: "Park at suburban lot ($5/day) + transit into city center",
-    savings: parkRideSave,
-    category: "Parking",
-    agentId: "parking",
-    applied: style !== "luxury",
-  });
-  if (style !== "luxury") optimizedCost -= parkRideSave;
-
-  onProgress("parking", 90, "Park-and-ride option found", parkRideSave);
-
-  return {
-    agentId: "parking",
-    lineItems: [
-      {
-        category: "Parking",
-        description: `${days} days parking (optimized location)`,
-        baseCost,
-        optimizedCost,
-        savings: baseCost - optimizedCost,
-        savingsSource: "Park-and-Ride",
-        agentId: "parking",
-      },
-    ],
-    opportunities,
-    savings: baseCost - optimizedCost,
-    message: "Parking costs minimized via park-and-ride",
+    message: "Ground transport, city passes, and parking unified",
   };
 }
 
@@ -292,16 +292,23 @@ export async function runAttractionsAgent(
   const dest = getDestinationData(request.destination);
   const days = request.duration ?? 5;
 
-  onProgress("attractions", 20, "Mapping attractions and free entry days...");
+  onProgress(
+    "attractions",
+    15,
+    request.isPartyTrip
+      ? `Planning ${request.partyType ?? "celebration"} activities + nightlife…`
+      : "Mapping attractions, events, and free entry days…"
+  );
   await delay(randomBetween(350, 600));
 
-  onProgress("attractions", 55, "Checking combo tickets and off-peak pricing...");
+  onProgress("attractions", 45, "Checking combo tickets, city pass entry, and off-peak pricing...");
   await delay(randomBetween(300, 500));
 
   const styleMult = style === "budget" ? 0.5 : style === "luxury" ? 2.5 : 1.0;
-  const baseCost = Math.round(45 * days * request.groupSize * styleMult);
+  let baseCost = Math.round(45 * days * request.groupSize * styleMult);
   let optimizedCost = baseCost;
   const opportunities: HiddenOpportunity[] = [];
+  const lineItems: CostLineItem[] = [];
 
   const freeDaySave = Math.round(baseCost * 0.2);
   opportunities.push({
@@ -327,207 +334,207 @@ export async function runAttractionsAgent(
   });
   if (style !== "budget") optimizedCost -= comboSave;
 
-  onProgress("attractions", 90, `${opportunities.length} attraction savings found`, baseCost - optimizedCost);
+  // Absorbed: local passes (attraction entry portion)
+  const passCost = Math.round(89 * request.groupSize);
+  const individualCost = Math.round(140 * request.groupSize);
+  const passEntrySave = individualCost - passCost;
+  if (style !== "luxury") {
+    opportunities.push({
+      id: "attractions-city-pass",
+      title: `${request.destination.charAt(0).toUpperCase() + request.destination.slice(1)} City Pass — Attractions`,
+      description: `Covers ${dest.attractions.length} attractions for ${days} days`,
+      savings: passEntrySave,
+      category: "Local Passes",
+      agentId: "attractions",
+      applied: true,
+    });
+    optimizedCost -= passEntrySave;
+    lineItems.push({
+      category: "Local Passes",
+      description: `City Pass entry (${days}-day, ${request.groupSize} travelers)`,
+      baseCost: individualCost,
+      optimizedCost: passCost,
+      savings: passEntrySave,
+      savingsSource: "City Pass Bundle",
+      agentId: "attractions",
+    });
+  }
+
+  // Absorbed: party / event planning
+  if (request.isPartyTrip) {
+    onProgress("attractions", 65, "Scouting venues, nightlife, and celebration packages...");
+    await delay(randomBetween(300, 500));
+
+    const partySave = Math.round(120 * request.groupSize * (style === "budget" ? 0.5 : 1));
+    opportunities.push({
+      id: "attractions-party-bundle",
+      title: `${request.partyType ?? "Celebration"} Activity Bundle`,
+      description: "Group venue booking + nightlife package cheaper than booking separately",
+      savings: partySave,
+      category: "Events",
+      agentId: "attractions",
+      applied: true,
+    });
+    optimizedCost -= partySave;
+
+    if (request.interests.includes("nightlife") || request.partyType?.includes("nightlife")) {
+      const nightlifeSave = Math.round(40 * request.groupSize);
+      opportunities.push({
+        id: "attractions-nightlife",
+        title: "Nightlife Pass",
+        description: "Cover charge waivers + drink specials at partner venues",
+        savings: nightlifeSave,
+        category: "Nightlife",
+        agentId: "attractions",
+        applied: true,
+      });
+      optimizedCost -= nightlifeSave;
+    }
+  }
+
+  lineItems.unshift({
+    category: request.isPartyTrip ? "Activities & Events" : "Attractions",
+    description: request.isPartyTrip
+      ? `${request.partyType ?? "Celebration"} · ${dest.attractions.slice(0, 2).join(", ")} + more`
+      : `${dest.attractions.slice(0, 3).join(", ")} + more`,
+    baseCost,
+    optimizedCost,
+    savings: baseCost - optimizedCost,
+    savingsSource: opportunities.filter((o) => o.applied).map((o) => o.title).join(", "),
+    agentId: "attractions",
+  });
+
+  onProgress("attractions", 90, `${opportunities.length} activity savings found`, baseCost - optimizedCost);
 
   return {
     agentId: "attractions",
-    lineItems: [
-      {
-        category: "Attractions",
-        description: `${dest.attractions.slice(0, 3).join(", ")} + more`,
-        baseCost,
-        optimizedCost,
-        savings: baseCost - optimizedCost,
-        savingsSource: opportunities.filter((o) => o.applied).map((o) => o.title).join(", "),
-        agentId: "attractions",
-      },
-    ],
+    lineItems,
     opportunities,
-    savings: baseCost - optimizedCost,
-    message: "Attractions scheduled around free entry days",
+    savings: lineItems.reduce((s, i) => s + i.savings, 0),
+    message: request.isPartyTrip
+      ? `Events, nightlife, and attractions unified for ${request.partyType ?? "your celebration"}`
+      : "Activities, events, and city pass entry unified",
   };
 }
 
-export async function runDiscountsAgent(
+export async function runSavingsAgent(
   request: ParsedRequest,
   style: TravelStyle,
   onProgress: ProgressCallback
 ): Promise<AgentResult> {
-  onProgress("discounts", 30, "Scanning promo codes and seasonal deals...");
+  onProgress("savings", 20, "Scanning promo codes, seasonal deals, and pricing credentials...");
   await delay(randomBetween(350, 550));
 
-  onProgress("discounts", 65, "Checking student, senior, and first-time user discounts...");
+  onProgress("savings", 50, "Matching loyalty cards, memberships, and stackable discounts...");
   await delay(randomBetween(300, 500));
 
-  const baseCost = Math.round(200 * request.groupSize);
-  let optimizedCost = baseCost;
   const opportunities: HiddenOpportunity[] = [];
+  const lineItems: CostLineItem[] = [];
+  let totalSavings = 0;
 
-  const promoSave = Math.round(baseCost * 0.15);
+  // Former discounts agent
+  const promoBase = Math.round(200 * request.groupSize);
+  let promoOpt = promoBase;
+  const promoSave = Math.round(promoBase * 0.15);
   opportunities.push({
-    id: "discount-promo",
+    id: "savings-promo",
     title: "Stacked Promo Codes",
     description: "Hotel booking site promo + email signup discount combined",
     savings: promoSave,
     category: "Discounts",
-    agentId: "discounts",
+    agentId: "savings",
     applied: true,
   });
-  optimizedCost -= promoSave;
+  promoOpt -= promoSave;
 
   if (request.hasMemberships.includes("STUDENT")) {
-    const studentSave = Math.round(baseCost * 0.1);
+    const studentSave = Math.round(promoBase * 0.1);
     opportunities.push({
-      id: "discount-student",
+      id: "savings-student",
       title: "Student Discount Verified",
       description: "ISIC card unlocks 10% off attractions and transit",
       savings: studentSave,
       category: "Discounts",
-      agentId: "discounts",
+      agentId: "savings",
       applied: true,
     });
-    optimizedCost -= studentSave;
+    promoOpt -= studentSave;
   }
 
-  onProgress("discounts", 90, "Discounts stacked", baseCost - optimizedCost);
+  if (promoBase - promoOpt > 0) {
+    lineItems.push({
+      category: "Discounts",
+      description: "Applied promo codes & seasonal deals",
+      baseCost: promoBase,
+      optimizedCost: promoOpt,
+      savings: promoBase - promoOpt,
+      savingsSource: "Stacked promos",
+      agentId: "savings",
+    });
+    totalSavings += promoBase - promoOpt;
+  }
 
-  return {
-    agentId: "discounts",
-    lineItems: [
-      {
-        category: "Discounts",
-        description: "Applied promo codes & seasonal deals",
-        baseCost,
-        optimizedCost,
-        savings: baseCost - optimizedCost,
-        savingsSource: "Stacked promos",
-        agentId: "discounts",
-      },
-    ],
-    opportunities,
-    savings: baseCost - optimizedCost,
-    message: "Multiple discount codes stacked",
-  };
-}
-
-export async function runMembershipsAgent(
-  request: ParsedRequest,
-  style: TravelStyle,
-  onProgress: ProgressCallback
-): Promise<AgentResult> {
-  onProgress("memberships", 25, "Checking AAA, Costco, credit card travel perks...");
-  await delay(randomBetween(350, 550));
-
-  onProgress("memberships", 60, "Scanning loyalty program cross-benefits...");
-  await delay(randomBetween(300, 500));
-
-  const opportunities: HiddenOpportunity[] = [];
-  let totalSavings = 0;
-
+  // Former memberships agent
   const aaaSave = 85;
   opportunities.push({
-    id: "membership-aaa",
+    id: "savings-aaa",
     title: "AAA Travel Discount",
     description: "AAA membership: 10% off hotels + free travel insurance",
     savings: aaaSave,
     category: "Memberships",
-    agentId: "memberships",
+    agentId: "savings",
     applied: request.hasMemberships.includes("AAA") || style === "balanced",
   });
   if (request.hasMemberships.includes("AAA") || style === "balanced") totalSavings += aaaSave;
 
   const amexSave = 120;
   opportunities.push({
-    id: "membership-amex",
+    id: "savings-amex",
     title: "Amex Platinum Travel Credit",
     description: "$200 annual travel credit + lounge access included",
     savings: amexSave,
     category: "Memberships",
-    agentId: "memberships",
+    agentId: "savings",
     applied: style === "luxury",
   });
   if (style === "luxury") totalSavings += amexSave;
 
   const costcoSave = 65;
   opportunities.push({
-    id: "membership-costco",
+    id: "savings-costco",
     title: "Costco Travel Cash Back",
     description: "Executive membership: 2% cash back on travel bookings",
     savings: costcoSave,
     category: "Memberships",
-    agentId: "memberships",
+    agentId: "savings",
     applied: request.hasMemberships.includes("COSTCO"),
   });
   if (request.hasMemberships.includes("COSTCO")) totalSavings += costcoSave;
 
-  onProgress("memberships", 90, `$${totalSavings} in membership benefits`, totalSavings);
+  const membershipApplied = opportunities.filter(
+    (o) => o.category === "Memberships" && o.applied
+  );
+  if (membershipApplied.length > 0) {
+    const memTotal = membershipApplied.reduce((s, o) => s + o.savings, 0);
+    lineItems.push({
+      category: "Membership Benefits",
+      description: "Applied membership & loyalty pricing credentials",
+      baseCost: memTotal,
+      optimizedCost: 0,
+      savings: memTotal,
+      savingsSource: membershipApplied.map((o) => o.title).join(", "),
+      agentId: "savings",
+    });
+  }
+
+  onProgress("savings", 90, `$${totalSavings} in discounts + membership savings`, totalSavings);
 
   return {
-    agentId: "memberships",
-    lineItems: totalSavings > 0 ? [
-      {
-        category: "Membership Benefits",
-        description: "Applied membership & loyalty perks",
-        baseCost: totalSavings,
-        optimizedCost: 0,
-        savings: totalSavings,
-        savingsSource: opportunities.filter((o) => o.applied).map((o) => o.title).join(", "),
-        agentId: "memberships",
-      },
-    ] : [],
+    agentId: "savings",
+    lineItems,
     opportunities,
     savings: totalSavings,
-    message: `${opportunities.filter((o) => o.applied).length} membership benefits applied`,
-  };
-}
-
-export async function runPassesAgent(
-  request: ParsedRequest,
-  style: TravelStyle,
-  onProgress: ProgressCallback
-): Promise<AgentResult> {
-  const dest = getDestinationData(request.destination);
-  onProgress("passes", 30, "Researching city passes and museum bundles...");
-  await delay(randomBetween(350, 550));
-
-  onProgress("passes", 65, "Comparing Go City vs individual tickets...");
-  await delay(randomBetween(300, 500));
-
-  const days = request.duration ?? 5;
-  const passCost = Math.round(89 * request.groupSize);
-  const individualCost = Math.round(140 * request.groupSize);
-  const savings = individualCost - passCost;
-
-  const opportunities: HiddenOpportunity[] = [
-    {
-      id: "pass-city",
-      title: `${request.destination.charAt(0).toUpperCase() + request.destination.slice(1)} City Pass`,
-      description: `Covers ${dest.attractions.length} attractions + transit for ${days} days`,
-      savings,
-      category: "Local Passes",
-      agentId: "passes",
-      applied: style !== "luxury",
-    },
-  ];
-
-  onProgress("passes", 90, `City pass saves $${savings}/person`, savings);
-
-  return {
-    agentId: "passes",
-    lineItems: style !== "luxury" ? [
-      {
-        category: "Local Passes",
-        description: `City Pass (${days}-day, ${request.groupSize} travelers)`,
-        baseCost: individualCost,
-        optimizedCost: passCost,
-        savings,
-        savingsSource: "City Pass Bundle",
-        agentId: "passes",
-      },
-    ] : [],
-    opportunities,
-    savings: style !== "luxury" ? savings : 0,
-    message: "City pass covers major attractions at bundle rate",
+    message: `${opportunities.filter((o) => o.applied).length} pricing credentials and discounts applied`,
   };
 }
 
@@ -711,16 +718,116 @@ export async function runBudgetAgent(
   };
 }
 
+export async function runEfficiencyAgent(
+  request: ParsedRequest,
+  style: TravelStyle,
+  onProgress: ProgressCallback,
+  priorResults: Map<AgentId, AgentResult>
+): Promise<AgentResult> {
+  onProgress("efficiency", 15, "Cross-checking estimates against scraped route data…");
+  await delay(randomBetween(350, 550));
+
+  onProgress("efficiency", 45, "Applying destination cost floors and savings caps…");
+  await delay(randomBetween(300, 500));
+
+  const { lineItems, audit } = auditAndRecalibratePlan(
+    request,
+    style,
+    priorResults
+  );
+
+  onProgress(
+    "efficiency",
+    75,
+    audit.feasible
+      ? `Verified total $${audit.verifiedTotal.toLocaleString()} (${audit.confidence} confidence)`
+      : `Budget infeasible — minimum $${audit.minRealisticTotal.toLocaleString()}`
+  );
+  await delay(randomBetween(200, 400));
+
+  const opportunities: HiddenOpportunity[] = [];
+
+  if (audit.correctionsApplied > 0) {
+    opportunities.push({
+      id: "efficiency-recalibration",
+      title: "Cost Recalibration Applied",
+      description: audit.message,
+      savings: 0,
+      category: "Verification",
+      agentId: "efficiency",
+      applied: true,
+    });
+  }
+
+  if (!audit.feasible && audit.budgetGap) {
+    opportunities.push({
+      id: "efficiency-budget-gap",
+      title: "Budget Below Realistic Minimum",
+      description: `Trip realistically costs at least $${audit.minRealisticTotal.toLocaleString()} — increase budget by $${audit.budgetGap.toLocaleString()} or shorten the trip`,
+      savings: 0,
+      category: "Verification",
+      agentId: "efficiency",
+      applied: false,
+    });
+  }
+
+  if (request.scrapedData?.distanceMiles) {
+    opportunities.push({
+      id: "efficiency-distance-verified",
+      title: "Distance-Verified Pricing",
+      description: `Flight and transport floors based on ${request.scrapedData.distanceMiles} mi scraped route`,
+      savings: 0,
+      category: "Verification",
+      agentId: "efficiency",
+      applied: true,
+    });
+  }
+
+  onProgress(
+    "efficiency",
+    95,
+    `${audit.correctionsApplied} correction(s) · ${audit.confidence} confidence`,
+    Math.max(0, audit.originalTotal - audit.verifiedTotal)
+  );
+
+  return {
+    agentId: "efficiency",
+    lineItems: audit.correctionsApplied > 0 || !audit.feasible
+      ? [
+          {
+            category: "Cost Verification",
+            description: audit.message,
+            baseCost: audit.originalTotal,
+            optimizedCost: audit.verifiedTotal,
+            savings: Math.max(0, audit.originalTotal - audit.verifiedTotal),
+            savingsSource: `${audit.confidence} confidence audit`,
+            agentId: "efficiency",
+          },
+        ]
+      : [],
+    opportunities,
+    savings: 0,
+    message: audit.message,
+    costAudit: audit,
+    verifiedLineItems: lineItems,
+  };
+}
+
 export function createInitialAgentStatuses(): AgentStatus[] {
   const ids: AgentId[] = [
-    "flight", "lodging", "transport", "parking", "attractions",
-    "discounts", "memberships", "passes", "group", "routing", "budget",
+    "flight", "lodging", "transport", "attractions",
+    "savings", "group", "routing", "budget", "efficiency",
   ];
   const names: Record<AgentId, string> = {
-    flight: "Flight Agent", lodging: "Lodging Agent", transport: "Transport Agent",
-    parking: "Parking Agent", attractions: "Attractions Agent", discounts: "Discounts Agent",
-    memberships: "Memberships Agent", passes: "Local Passes Agent", group: "Group Agent",
-    routing: "Routing Agent", budget: "Budget Agent",
+    flight: "Flight Agent",
+    lodging: "Lodging Agent",
+    transport: "Transport Agent",
+    attractions: "Attractions Agent",
+    savings: "Savings Agent",
+    group: "Group Agent",
+    routing: "Routing Agent",
+    budget: "Budget Agent",
+    efficiency: "Cost Efficiency Agent",
   };
   return ids.map((id) => ({
     id,

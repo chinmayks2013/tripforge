@@ -8,6 +8,10 @@ import PlanComparison from "@/components/PlanComparison";
 import AssumptionsChecklist from "@/components/AssumptionsChecklist";
 import LocationPrompt from "@/components/LocationPrompt";
 import ScrapeFeed from "@/components/ScrapeFeed";
+import TaskOrchestratorPanel, {
+  TaskPlanItem,
+} from "@/components/TaskOrchestratorPanel";
+import WandbTraceLink from "@/components/WandbTraceLink";
 import dynamic from "next/dynamic";
 import {
   AgentEvent,
@@ -42,6 +46,8 @@ export default function Home() {
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [scrapedData, setScrapedData] = useState<ScrapedTripData | null>(null);
   const [isScraping, setIsScraping] = useState(false);
+  const [taskPlan, setTaskPlan] = useState<TaskPlanItem[]>([]);
+  const [activeWave, setActiveWave] = useState<number | undefined>();
   const abortRef = useRef<AbortController | null>(null);
 
   const handleEvent = useCallback((event: AgentEvent) => {
@@ -50,8 +56,14 @@ export default function Home() {
         if (event.agentId) {
           setAgents((prev) =>
             prev.map((a) =>
-              a.id === event.agentId
-                ? { ...a, status: "searching", progress: 0, message: "Starting...", lastUpdate: Date.now() }
+              a.id === event.agentId && a.status !== "complete"
+                ? {
+                    ...a,
+                    status: "searching",
+                    progress: 0,
+                    message: "Starting...",
+                    lastUpdate: Date.now(),
+                  }
                 : a
             )
           );
@@ -95,6 +107,45 @@ export default function Home() {
         }
         break;
 
+      case "task_plan_ready": {
+        const { tasks, style } = event.data as {
+          tasks?: TaskPlanItem[];
+          style?: string;
+        };
+        if (tasks?.length && style === "balanced") setTaskPlan(tasks);
+        break;
+      }
+
+      case "task_wave_start": {
+        const { wave, style } = event.data as { wave?: number; style?: string };
+        if (style === "balanced" && wave != null) setActiveWave(wave);
+        break;
+      }
+
+      case "task_assigned":
+        if (event.agentId) {
+          const { title, objective } = event.data as {
+            title?: string;
+            objective?: string;
+          };
+          setAgents((prev) =>
+            prev.map((a) =>
+              a.id === event.agentId
+                ? {
+                    ...a,
+                    status: "searching",
+                    progress: 0,
+                    assignedTask: title,
+                    taskObjective: objective,
+                    message: title ?? "Assigned",
+                    lastUpdate: Date.now(),
+                  }
+                : a
+            )
+          );
+        }
+        break;
+
       case "scrape_progress": {
         setIsScraping(true);
         const { message } = event.data as { message?: string };
@@ -117,6 +168,29 @@ export default function Home() {
         break;
       }
 
+      case "task_complete":
+        if (event.agentId) {
+          const { savings, message } = event.data as {
+            savings?: number;
+            message?: string;
+          };
+          setAgents((prev) =>
+            prev.map((a) =>
+              a.id === event.agentId
+                ? {
+                    ...a,
+                    status: "complete",
+                    progress: 100,
+                    savingsFound: savings ?? a.savingsFound,
+                    message: message ?? a.message,
+                    lastUpdate: Date.now(),
+                  }
+                : a
+            )
+          );
+        }
+        break;
+
       case "assumptions_ready":
         setAssumptions((event.data.assumptions as Assumption[]) ?? []);
         break;
@@ -137,7 +211,7 @@ export default function Home() {
           setResult(data.result);
           if (data.result.scrapedData) setScrapedData(data.result.scrapedData);
           if (data.result.assumptions?.length) setAssumptions(data.result.assumptions);
-          if (data.result.agentStatuses) setAgents(data.result.agentStatuses);
+          if (data.result.agentStatuses?.length) setAgents(data.result.agentStatuses);
         }
         setIsScraping(false);
         setPhase("results");
@@ -210,7 +284,10 @@ export default function Home() {
     setPhase("optimizing");
     setAgents(createInitialAgentStatuses());
     setResult(null);
+    setAssumptions([]);
     setScrapedData(null);
+    setTaskPlan([]);
+    setActiveWave(undefined);
     setIsScraping(true);
 
     await streamOptimize({
@@ -249,13 +326,16 @@ export default function Home() {
               </p>
             </div>
           </div>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-white/40">
-            {Object.values(AGENT_META).slice(0, 5).map((a) => (
-              <span key={a.name} title={a.description}>
-                {a.icon}
-              </span>
-            ))}
-            <span>+6 more agents</span>
+          <div className="hidden sm:flex flex-col items-end gap-1 text-xs text-white/40">
+            <div className="flex items-center gap-2">
+              {Object.values(AGENT_META).slice(0, 5).map((a) => (
+                <span key={a.name} title={a.description}>
+                  {a.icon}
+                </span>
+              ))}
+              <span>+4 more agents</span>
+            </div>
+            <WandbTraceLink />
           </div>
         </div>
       </header>
@@ -278,9 +358,8 @@ export default function Home() {
                   <span className="gradient-text">We&apos;ll find every way to save.</span>
                 </h2>
                 <p className="text-white/50 max-w-xl mx-auto text-sm sm:text-base">
-                  11 AI agents work in parallel to minimize your trip cost — uncovering
-                  hidden passes, membership perks, group rates, and savings traditional
-                  planners miss.
+                  9 AI agents work in parallel to minimize your trip cost — with a final
+                  accuracy pass that verifies every estimate against live route data.
                 </p>
               </motion.div>
             )}
@@ -299,23 +378,46 @@ export default function Home() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.3 }}
-              className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto pt-4"
+              className="space-y-4 max-w-2xl mx-auto pt-4"
             >
-              {[
-                { icon: "🎫", label: "Local Passes" },
-                { icon: "💳", label: "Membership Perks" },
-                { icon: "👥", label: "Group Rates" },
-                { icon: "🏷️", label: "Hidden Discounts" },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="glass rounded-xl p-3 text-center"
-                >
-                  <div className="text-xl mb-1">{item.icon}</div>
-                  <div className="text-[10px] text-white/50">{item.label}</div>
-                </div>
-              ))}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { icon: "🎫", label: "Local Passes" },
+                  { icon: "💳", label: "Membership Perks" },
+                  { icon: "👥", label: "Group Rates" },
+                  { icon: "🏷️", label: "Hidden Discounts" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="glass rounded-xl p-3 text-center"
+                  >
+                    <div className="text-xl mb-1">{item.icon}</div>
+                    <div className="text-[10px] text-white/50">{item.label}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-white/35 text-center">
+                After you search: optimized plans, live satellite route map, day-by-day
+                itinerary with weather, gas stops, and cost breakdown all appear below.
+              </p>
             </motion.div>
+          )}
+
+          {phase === "results" && result?.route && (
+            <div className="flex justify-center gap-2 text-xs">
+              <a
+                href="#plans-section"
+                className="glass px-3 py-1.5 rounded-lg text-white/60 hover:text-white/90"
+              >
+                Plans
+              </a>
+              <a
+                href="#journey-section"
+                className="glass px-3 py-1.5 rounded-lg text-brand-300 hover:text-brand-200"
+              >
+                🗺️ Journey Map
+              </a>
+            </div>
           )}
         </section>
 
@@ -327,6 +429,35 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
             >
               <ScrapeFeed data={scrapedData} isLoading={isScraping} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Assumptions Checklist — visible as soon as assumptions are ready */}
+        <AnimatePresence>
+          {assumptions.length > 0 && (phase === "optimizing" || phase === "results") && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              id="assumptions-section"
+            >
+              <AssumptionsChecklist
+                assumptions={assumptions}
+                onUpdate={handleAssumptionUpdate}
+                isUpdating={isRefining}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Task orchestrator */}
+        <AnimatePresence>
+          {taskPlan.length > 0 && (phase === "optimizing" || phase === "results") && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <TaskOrchestratorPanel tasks={taskPlan} activeWave={activeWave} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -346,22 +477,6 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {/* Assumptions Checklist */}
-        <AnimatePresence>
-          {assumptions.length > 0 && phase === "results" && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <AssumptionsChecklist
-                assumptions={assumptions}
-                onUpdate={handleAssumptionUpdate}
-                isUpdating={isRefining}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         {/* Plans */}
         <AnimatePresence>
           {result && result.plans.length > 0 && phase === "results" && (
@@ -369,15 +484,15 @@ export default function Home() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="space-y-4"
+              id="plans-section"
             >
               <div className="text-center">
                 <h2 className="text-xl font-bold text-white">
                   Your Optimized Plans
                 </h2>
                 <p className="text-sm text-white/40 mt-1">
-                  {result.plans.length} travel styles ·{" "}
-                  {result.plans[0]?.opportunities.filter((o) => o.applied).length ?? 0}+
-                  hidden savings applied
+                  {result.plans.length} travel styles (Budget / Balanced / Luxury) — not
+                  your spending limit unless you set one in the checklist
                 </p>
               </div>
               <PlanComparison plans={result.plans} />
@@ -385,18 +500,20 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {/* Step-by-step journey with satellite map */}
+        {/* Step-by-step journey with satellite map — scroll here after plans */}
         <AnimatePresence>
           {result?.route && phase === "results" && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
+              transition={{ delay: 0.15 }}
+              id="journey-section"
             >
               <TripJourney route={result.route} userLocation={userLocation} />
             </motion.div>
           )}
         </AnimatePresence>
+
       </div>
 
       {/* Footer */}
