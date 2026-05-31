@@ -60,7 +60,7 @@ export default function LiveCommandBar({
                 icon={ListOrdered}
                 label="Step"
                 value={activeWave != null ? `${activeWave} / 9` : "—"}
-                sub={isScraping ? "Web scraping" : "Next agent"}
+                sub={isScraping ? "Gathering live trip data" : "Next agent"}
                 accent="#d4a853"
               />
               <Metric
