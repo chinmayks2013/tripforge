@@ -406,9 +406,9 @@ export default function Home() {
                   <span className="gradient-text">multi-agent research</span>
                 </h1>
                 <p className="text-white/45 text-sm sm:text-base leading-relaxed max-w-xl mx-auto">
-                  Describe your journey once. Every agent scrapes live web data; the flight
-                  agent analyzes fares directly, while all other agents add AI on top of
-                  their scraped context.
+                  Describe your journey once. The flight agent analyzes fares directly,
+                  while the other agents combine live data and AI to produce practical
+                  travel recommendations.
                 </p>
                 <AnimatedHeroDestinations />
               </motion.div>
@@ -427,8 +427,8 @@ export default function Home() {
                   title="Building your optimized itinerary"
                   description={
                     isScraping
-                      ? "Agent scraping live data from OpenStreetMap, weather, and web sources"
-                      : "Sequential pipeline — scrape then AI analysis per agent"
+                      ? "Agents gathering current trip data and refining recommendations"
+                      : "Sequential pipeline — live context plus AI analysis per agent"
                   }
                 />
               </motion.div>

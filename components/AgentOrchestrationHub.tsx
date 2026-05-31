@@ -207,7 +207,7 @@ export default function AgentOrchestrationHub({
             </motion.p>
           ) : (
             <p className="text-xs text-white/30">
-              Web scrape finished · agents run one at a time in order
+              Agents run one at a time in order
             </p>
           )}
         </AnimatePresence>
