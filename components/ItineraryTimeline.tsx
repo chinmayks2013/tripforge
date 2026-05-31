@@ -135,14 +135,24 @@ function StopCard({
         </div>
 
         {stop.perks && stop.perks.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
+          <div className="mt-2 flex flex-col gap-1.5">
             {stop.perks.map((p) => (
-              <span
-                key={p.title}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
-              >
-                ✓ {p.title} · save ${p.savings}
-              </span>
+              <div key={p.title} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  ✓ {p.title} · save ${p.savings}
+                </span>
+                {p.verifyUrl && (
+                  <a
+                    href={p.verifyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={p.verifyLabel}
+                    className="text-[10px] text-rook-400/90 hover:text-rook-300 inline-flex items-center gap-0.5 transition-colors"
+                  >
+                    {p.verifyLabel ?? "Open deal"} ↗
+                  </a>
+                )}
+              </div>
             ))}
           </div>
         )}

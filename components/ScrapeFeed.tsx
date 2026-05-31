@@ -12,15 +12,15 @@ export default function ScrapeFeed({ data, isLoading }: ScrapeFeedProps) {
   if (!data && !isLoading) return null;
 
   return (
-    <div className="glass rounded-2xl p-4 border border-cyan-500/20">
+    <div className="glass-elevated rounded-2xl p-4 border border-rook-400/10">
       <div className="flex items-center gap-2 mb-3">
-        <Globe className="w-4 h-4 text-cyan-400" />
+        <Globe className="w-4 h-4 text-rook-400" />
         <h3 className="text-sm font-semibold text-white/90">
-          Live web scrape + AI extraction
+          Live destination research
         </h3>
         {isLoading && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 animate-pulse">
-            Scraping…
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-rook-500/15 text-rook-300 border border-rook-400/20 animate-pulse">
+            Researching…
           </span>
         )}
       </div>

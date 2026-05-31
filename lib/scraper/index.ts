@@ -2,7 +2,7 @@ import { ScrapedTripData, UserLocation } from "../types";
 
 export type { ScrapedTripData, UserLocation };
 
-const UA = "TripForge/1.0 (hackathon travel planner)";
+const UA = "TravelRooks/1.0 (travel planner)";
 
 const WMO_ICONS: Record<number, string> = {
   0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 61: "🌧️", 71: "🌨️", 95: "⛈️",

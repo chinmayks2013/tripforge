@@ -8,10 +8,11 @@ import PlanComparison from "@/components/PlanComparison";
 import AssumptionsChecklist from "@/components/AssumptionsChecklist";
 import LocationPrompt from "@/components/LocationPrompt";
 import ScrapeFeed from "@/components/ScrapeFeed";
+import SiteHeader from "@/components/SiteHeader";
+import PhaseStepper from "@/components/PhaseStepper";
 import TaskOrchestratorPanel, {
   TaskPlanItem,
 } from "@/components/TaskOrchestratorPanel";
-import WandbTraceLink from "@/components/WandbTraceLink";
 import dynamic from "next/dynamic";
 import {
   AgentEvent,
@@ -19,7 +20,6 @@ import {
   Assumption,
   OptimizationResult,
   TravelPlan,
-  AGENT_META,
   ScrapedTripData,
   UserLocation,
 } from "@/lib/types";
@@ -310,60 +310,91 @@ export default function Home() {
     });
   };
 
-  return (
-    <main className="min-h-screen">
-      {/* Header */}
-      <header className="border-b border-white/5">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-cyan-500 flex items-center justify-center text-lg">
-              ⚡
-            </div>
-            <div>
-              <h1 className="text-lg font-bold gradient-text">TripForge</h1>
-              <p className="text-[10px] text-white/40 tracking-wide uppercase">
-                Multi-Agent Cost Optimizer
-              </p>
-            </div>
-          </div>
-          <div className="hidden sm:flex flex-col items-end gap-1 text-xs text-white/40">
-            <div className="flex items-center gap-2">
-              {Object.values(AGENT_META).slice(0, 5).map((a) => (
-                <span key={a.name} title={a.description}>
-                  {a.icon}
-                </span>
-              ))}
-              <span>+4 more agents</span>
-            </div>
-            <WandbTraceLink />
-          </div>
-        </div>
-      </header>
+  const totalSavings = agents.reduce((s, a) => s + (a.savingsFound ?? 0), 0);
 
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-        {/* Hero / Input */}
-        <section className="text-center space-y-6 py-8">
+  return (
+    <main className="min-h-screen flex flex-col">
+      <SiteHeader
+        phase={phase}
+        showNav={phase === "results" && !!result?.route}
+      />
+
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-10 flex-1 w-full">
+        {/* Hero */}
+        <section className="space-y-8">
           <AnimatePresence mode="wait">
             {phase === "idle" && (
               <motion.div
                 key="hero"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-4"
+                exit={{ opacity: 0, y: -12 }}
+                className="text-center space-y-5 pt-4"
               >
-                <h2 className="text-3xl sm:text-4xl font-bold text-white">
-                  Tell us where you want to go.
-                  <br />
-                  <span className="gradient-text">We&apos;ll find every way to save.</span>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-rook-400/25 bg-rook-500/10 text-rook-300 text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rook-400 animate-pulse" />
+                  9 AI agents · live data · verified pricing
+                </div>
+                <h2 className="font-display text-4xl sm:text-5xl lg:text-[3.25rem] leading-tight text-white max-w-3xl mx-auto">
+                  Plan smarter trips with{" "}
+                  <span className="gradient-text">TravelRooks</span>
                 </h2>
-                <p className="text-white/50 max-w-xl mx-auto text-sm sm:text-base">
-                  9 AI agents work in parallel to minimize your trip cost — with a final
-                  accuracy pass that verifies every estimate against live route data.
+                <p className="text-white/50 max-w-xl mx-auto text-sm sm:text-base leading-relaxed">
+                  Describe your trip once. Our agents research live routes, compare
+                  stays and transport, surface hidden savings, and verify every price
+                  against real-world cost floors.
                 </p>
               </motion.div>
             )}
+            {phase === "optimizing" && (
+              <motion.div
+                key="working"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-center pt-2"
+              >
+                <h2 className="text-xl sm:text-2xl font-semibold text-white/90">
+                  Building your optimized itinerary…
+                </h2>
+                <p className="text-sm text-white/45 mt-2">
+                  {isScraping
+                    ? "Pulling live weather, routes, and destination data"
+                    : "Agents are negotiating the best combination of savings"}
+                </p>
+              </motion.div>
+            )}
+            {phase === "results" && result && (
+              <motion.div
+                key="done"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-center pt-2"
+              >
+                <h2 className="text-xl sm:text-2xl font-semibold text-white/90">
+                  Your trip to{" "}
+                  <span className="text-rook-400 capitalize">
+                    {result.request.destination}
+                  </span>{" "}
+                  is ready
+                </h2>
+                {result.totalSavingsAcrossAgents > 0 && (
+                  <p className="text-sm text-emerald-400/90 mt-2 font-medium">
+                    ${result.totalSavingsAcrossAgents.toLocaleString()} total savings
+                    applied across all categories
+                  </p>
+                )}
+              </motion.div>
+            )}
           </AnimatePresence>
+
+          {phase !== "idle" && (
+            <PhaseStepper
+              phase={phase}
+              isScraping={isScraping}
+              savingsTotal={totalSavings}
+            />
+          )}
 
           <LocationPrompt
             location={userLocation}
@@ -377,45 +408,40 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="space-y-4 max-w-2xl mx-auto pt-4"
+              transition={{ delay: 0.2 }}
+              className="grid grid-cols-2 lg:grid-cols-4 gap-3 max-w-3xl mx-auto pt-2"
             >
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { icon: "🎫", label: "Local Passes" },
-                  { icon: "💳", label: "Membership Perks" },
-                  { icon: "👥", label: "Group Rates" },
-                  { icon: "🏷️", label: "Hidden Discounts" },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="glass rounded-xl p-3 text-center"
-                  >
-                    <div className="text-xl mb-1">{item.icon}</div>
-                    <div className="text-[10px] text-white/50">{item.label}</div>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-white/35 text-center">
-                After you search: optimized plans, live satellite route map, day-by-day
-                itinerary with weather, gas stops, and cost breakdown all appear below.
-              </p>
+              {[
+                { value: "9", label: "Specialist agents", sub: "Parallel optimization" },
+                { value: "3", label: "Plan styles", sub: "Budget · Balanced · Luxury" },
+                { value: "Live", label: "Route data", sub: "OpenStreetMap + weather" },
+                { value: "✓", label: "Verified costs", sub: "No inflated savings" },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  className="glass rounded-xl p-4 text-center border-white/[0.06]"
+                >
+                  <div className="text-2xl font-display text-rook-400">{stat.value}</div>
+                  <div className="text-xs font-medium text-white/75 mt-1">{stat.label}</div>
+                  <div className="text-[10px] text-white/35 mt-0.5">{stat.sub}</div>
+                </div>
+              ))}
             </motion.div>
           )}
 
           {phase === "results" && result?.route && (
-            <div className="flex justify-center gap-2 text-xs">
+            <div className="flex justify-center gap-2 text-xs flex-wrap">
               <a
                 href="#plans-section"
-                className="glass px-3 py-1.5 rounded-lg text-white/60 hover:text-white/90"
+                className="glass px-4 py-2 rounded-lg text-white/60 hover:text-white hover:border-rook-400/30 transition-colors"
               >
-                Plans
+                View plans
               </a>
               <a
                 href="#journey-section"
-                className="glass px-3 py-1.5 rounded-lg text-brand-300 hover:text-brand-200"
+                className="px-4 py-2 rounded-lg bg-rook-500/15 border border-rook-400/30 text-rook-300 hover:bg-rook-500/25 transition-colors"
               >
-                🗺️ Journey Map
+                Journey map →
               </a>
             </div>
           )}
@@ -487,12 +513,11 @@ export default function Home() {
               id="plans-section"
             >
               <div className="text-center">
-                <h2 className="text-xl font-bold text-white">
-                  Your Optimized Plans
+                <h2 className="font-display text-2xl text-white">
+                  Optimized Plans
                 </h2>
                 <p className="text-sm text-white/40 mt-1">
-                  {result.plans.length} travel styles (Budget / Balanced / Luxury) — not
-                  your spending limit unless you set one in the checklist
+                  Three travel styles — pick the balance of cost and comfort that fits you
                 </p>
               </div>
               <PlanComparison plans={result.plans} />
@@ -516,10 +541,12 @@ export default function Home() {
 
       </div>
 
-      {/* Footer */}
-      <footer className="border-t border-white/5 mt-16">
-        <div className="max-w-6xl mx-auto px-4 py-6 text-center text-xs text-white/30">
-          TripForge · Multi-Agent Travel Cost Optimization · Hackathon 2026
+      <footer className="border-t border-white/[0.06] mt-12">
+        <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-white/35">
+          <span className="font-display text-white/50">
+            Travel<span className="text-rook-400">Rooks</span>
+          </span>
+          <span>Intelligent multi-agent trip planning · MIT Hackathon 2026</span>
         </div>
       </footer>
     </main>

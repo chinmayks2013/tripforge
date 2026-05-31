@@ -4,6 +4,7 @@ import {
   PlaceOfInterest,
   STOP_ICONS,
 } from "./locations";
+import { enrichPerk } from "./deals/verify-links";
 
 function haversineMi(
   lat1: number,
@@ -188,6 +189,7 @@ function placeToStop(
   }
 
   const { perks, cost, originalCost } = buildPerks(place, request);
+  const enrichedPerks = perks?.map((p) => enrichPerk(p, request));
 
   const tips: Record<string, string> = {
     gas: "Cheapest fuel within 2 mi · loyalty & AAA discounts auto-applied",
@@ -215,7 +217,7 @@ function placeToStop(
     travelMin,
     transportMode: mode,
     tips: tips[place.category] ?? tips.perk,
-    perks,
+    perks: enrichedPerks,
   };
 }
 

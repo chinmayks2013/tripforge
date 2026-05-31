@@ -9,6 +9,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        rook: {
+          300: "#e8c882",
+          400: "#d4a853",
+          500: "#b8923f",
+          600: "#96762e",
+        },
+        surface: {
+          700: "#141a24",
+          800: "#0f1419",
+          900: "#0a0e14",
+        },
         brand: {
           50: "#f0fdf9",
           100: "#ccfbef",

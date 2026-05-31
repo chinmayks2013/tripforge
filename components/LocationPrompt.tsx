@@ -5,7 +5,7 @@ import { MapPin, Loader2, Navigation } from "lucide-react";
 import { UserLocation } from "@/lib/types";
 import clsx from "clsx";
 
-const STORAGE_KEY = "tripforge-user-location";
+const STORAGE_KEY = "travelrooks-user-location";
 const CACHE_MS = 60 * 60 * 1000; // 1 hour
 
 interface LocationPromptProps {
@@ -143,10 +143,11 @@ export default function LocationPrompt({
 
   if (location) {
     return (
-      <div className="flex items-center justify-center gap-2 text-sm text-emerald-400/90">
-        <MapPin className="w-4 h-4 shrink-0" />
-        <span>
-          Departing from <strong className="text-emerald-300">{location.city}</strong>
+      <div className="flex items-center justify-center gap-2 text-sm px-4 py-2 rounded-full glass border border-emerald-500/20 bg-emerald-500/5">
+        <MapPin className="w-4 h-4 shrink-0 text-emerald-400" />
+        <span className="text-white/70">
+          Departing from{" "}
+          <strong className="text-emerald-300">{location.city}</strong>
           {location.region ? `, ${location.region}` : ""}
         </span>
         <button
@@ -161,9 +162,11 @@ export default function LocationPrompt({
   }
 
   return (
-    <div className="glass rounded-2xl p-5 max-w-lg mx-auto text-center border border-brand-500/20">
-      <Navigation className="w-8 h-8 text-brand-400 mx-auto mb-2" />
-      <h3 className="text-sm font-semibold text-white">Where are you now?</h3>
+    <div className="glass-elevated rounded-2xl p-5 max-w-lg mx-auto text-center border border-rook-400/15">
+      <div className="w-12 h-12 rounded-xl bg-rook-500/15 border border-rook-400/20 flex items-center justify-center mx-auto mb-3">
+        <Navigation className="w-6 h-6 text-rook-400" />
+      </div>
+      <h3 className="text-sm font-semibold text-white">Set your departure point</h3>
       <p className="text-xs text-white/50 mt-1 mb-4">
         {status === "loading"
           ? "Using your browser location (already allowed)…"
@@ -181,7 +184,7 @@ export default function LocationPrompt({
           disabled={loading}
           className={clsx(
             "inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all",
-            "bg-brand-600 hover:bg-brand-500 text-white disabled:opacity-50 cursor-pointer"
+            "bg-gradient-to-r from-rook-500 to-rook-600 hover:from-rook-400 hover:to-rook-500 text-white disabled:opacity-50 cursor-pointer shadow-rook"
           )}
         >
           <MapPin className="w-4 h-4" />

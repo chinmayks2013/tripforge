@@ -31,13 +31,13 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
   const totalSavings = agents.reduce((s, a) => s + (a.savingsFound ?? 0), 0);
 
   return (
-    <div className="glass rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-4">
+    <div className="glass-elevated rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="text-sm font-semibold text-white/90">
+          <h3 className="text-sm font-semibold text-white/90 tracking-wide">
             Agent Orchestration
           </h3>
-          <p className="text-xs text-white/50 mt-0.5">
+          <p className="text-xs text-white/45 mt-0.5">
             {activeCount > 0
               ? `${activeCount} agents working in parallel`
               : `${completeCount}/${agents.length} agents complete`}
@@ -47,10 +47,12 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="text-right"
+            className="text-right px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20"
           >
-            <div className="text-xs text-white/50">Savings discovered</div>
-            <div className="text-lg font-bold text-emerald-400">
+            <div className="text-[10px] text-emerald-400/70 uppercase tracking-wider">
+              Savings found
+            </div>
+            <div className="text-lg font-semibold text-emerald-400">
               ${totalSavings.toLocaleString()}
             </div>
           </motion.div>
@@ -72,9 +74,9 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={clsx(
-                  "relative rounded-xl p-3 border transition-all duration-300",
-                  isWorking && "border-white/20 bg-white/5",
-                  isComplete && "border-emerald-500/30 bg-emerald-500/5",
+                  "relative rounded-xl p-3 border transition-all duration-300 hover:border-white/15",
+                  isWorking && "border-rook-400/25 bg-rook-500/5",
+                  isComplete && "border-emerald-500/25 bg-emerald-500/5",
                   !isWorking && !isComplete && "border-white/5 bg-white/[0.02]"
                 )}
               >

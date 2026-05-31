@@ -4,34 +4,63 @@
 
 @layer base {
   :root {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 96%;
-    --card: 222 47% 9%;
-    --border: 217 33% 17%;
-    --muted: 215 20% 55%;
-    --accent: 174 72% 40%;
+    --background: 222 44% 5%;
+    --foreground: 210 25% 96%;
+    --card: 222 38% 8%;
+    --border: 220 20% 14%;
+    --muted: 215 15% 55%;
+    --accent: 38 72% 55%;
+    --surface: 222 35% 10%;
   }
 
   body {
     @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))] antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212, 168, 83, 0.08), transparent),
+      radial-gradient(ellipse 60% 40% at 100% 0%, rgba(20, 184, 166, 0.06), transparent);
   }
 }
 
 @layer utilities {
   .glass {
-    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.08];
+  }
+
+  .glass-elevated {
+    @apply bg-white/[0.05] backdrop-blur-xl border border-white/[0.1] shadow-xl shadow-black/20;
   }
 
   .gradient-text {
-    @apply bg-gradient-to-r from-brand-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-rook-300 via-rook-400 to-brand-400 bg-clip-text text-transparent;
+  }
+
+  .gradient-text-subtle {
+    @apply bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent;
   }
 
   .agent-glow {
-    box-shadow: 0 0 20px rgba(20, 184, 166, 0.15);
+    box-shadow:
+      0 0 0 1px rgba(212, 168, 83, 0.12),
+      0 8px 32px rgba(0, 0, 0, 0.35);
+  }
+
+  .shadow-rook {
+    box-shadow: 0 4px 24px rgba(212, 168, 83, 0.15);
+  }
+
+  .font-display {
+    font-family: var(--font-display), Georgia, serif;
+  }
+
+  .font-sans {
+    font-family: var(--font-sans), system-ui, sans-serif;
+  }
+
+  .interactive-card {
+    @apply transition-all duration-300 hover:border-rook-400/30 hover:bg-white/[0.04] hover:-translate-y-0.5 cursor-pointer;
   }
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -40,7 +69,7 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 3px;
 }
 
@@ -68,9 +97,23 @@
 @keyframes travelerPulse {
   0%,
   100% {
-    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.4), 0 2px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 4px rgba(212, 168, 83, 0.35), 0 2px 12px rgba(0, 0, 0, 0.5);
   }
   50% {
-    box-shadow: 0 0 0 10px rgba(20, 184, 166, 0.15), 0 2px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 10px rgba(212, 168, 83, 0.12), 0 2px 12px rgba(0, 0, 0, 0.5);
   }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
 }

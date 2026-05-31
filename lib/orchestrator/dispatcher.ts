@@ -61,7 +61,7 @@ export async function dispatchAgentTasks(
   onProgress: ProgressCallback,
   emit: TaskEventEmitter,
   filterAgents?: AgentId[],
-  options?: { live?: boolean }
+  options?: { live?: boolean; onWaveComplete?: (wave: number, agents: AgentId[], savings: number) => void }
 ): Promise<DispatchResult> {
   const live = options?.live !== false;
   const noopProgress: ProgressCallback = () => {};
@@ -175,6 +175,16 @@ export async function dispatchAgentTasks(
           timestamp: Date.now(),
         });
       })
+    );
+
+    const waveSavings = waveTasks.reduce(
+      (s, t) => s + (results.get(t.agentId)?.savings ?? 0),
+      0
+    );
+    options?.onWaveComplete?.(
+      waveNum,
+      waveTasks.map((t) => t.agentId),
+      waveSavings
     );
 
     // Yield so SSE chunks flush before the next wave

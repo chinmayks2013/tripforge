@@ -1,13 +1,22 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans, DM_Serif_Display } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const sans = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
+const display = DM_Serif_Display({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-display",
+});
 
 export const metadata: Metadata = {
-  title: "TripForge — AI Travel Cost Optimizer",
+  title: "TravelRooks — Intelligent Trip Planning",
   description:
-    "Multi-agent AI platform that minimizes trip costs through parallel optimization across flights, lodging, transport, and hidden savings.",
+    "TravelRooks uses nine AI agents in parallel to research, optimize, and verify your trip — flights, stays, transport, and hidden savings in one plan.",
 };
 
 export default function RootLayout({
@@ -16,8 +25,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>{children}</body>
+    <html lang="en" className={`${sans.variable} ${display.variable}`}>
+      <body className="font-sans">{children}</body>
     </html>
   );
 }

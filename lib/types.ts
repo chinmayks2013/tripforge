@@ -104,6 +104,9 @@ export interface HiddenOpportunity {
   category: string;
   agentId: AgentId;
   applied: boolean;
+  /** Official or third-party page where the user can verify this deal */
+  verifyUrl?: string;
+  verifyLabel?: string;
 }
 
 export interface CostAuditReport {
@@ -154,7 +157,7 @@ export interface ItineraryStop {
   transportMode?: "walk" | "drive" | "transit" | "rideshare";
   tips?: string;
   /** Membership / pass savings applied at this stop */
-  perks?: { title: string; savings: number }[];
+  perks?: { title: string; savings: number; verifyUrl?: string; verifyLabel?: string }[];
   /** Original cost before perks */
   originalCost?: number;
 }

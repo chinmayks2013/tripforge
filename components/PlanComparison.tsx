@@ -55,8 +55,8 @@ export default function PlanComparison({ plans }: PlanComparisonProps) {
               className={clsx(
                 "relative text-left rounded-2xl p-5 border transition-all duration-300",
                 isSelected
-                  ? "border-brand-500/50 bg-gradient-to-br " + config.gradient + " agent-glow"
-                  : "border-white/10 glass hover:border-white/20"
+                  ? "border-rook-400/40 bg-gradient-to-br " + config.gradient + " agent-glow"
+                  : "border-white/10 glass hover:border-rook-400/20"
               )}
             >
               <div className="flex items-center justify-between mb-3">

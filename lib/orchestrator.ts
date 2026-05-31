@@ -15,24 +15,31 @@ import {
   createInitialAgentStatuses,
   ProgressCallback,
 } from "./agents";
-import { dispatchAgentTasks } from "./orchestrator/dispatcher";
-import { buildAgentTaskPlan } from "./orchestrator/agent-tasks";
 import { deriveStyledPlan } from "./orchestrator/plan-derivation";
+import { TravelCoordinator } from "./orchestrator/coordinator";
+import { enrichOpportunities } from "./deals/verify-links";
 
 export type EventEmitter = (event: AgentEvent) => void | Promise<void>;
 
 export { dispatchAgentTasks } from "./orchestrator/dispatcher";
 export { buildAgentTaskPlan } from "./orchestrator/agent-tasks";
+export { TravelCoordinator, COORDINATOR_AGENTS } from "./orchestrator/coordinator";
 export type { AgentTask } from "./orchestrator/agent-tasks";
 
 const SCRAPE_TIMEOUT_MS = 12_000;
 
+/**
+ * Single orchestrator for TravelRooks — merges web dispatch + coordinator duties.
+ * Replaces both TravelOrchestrator-only flow and Python coordinator_agent.py.
+ */
 export class TravelOrchestrator {
   private emit: EventEmitter;
+  private coordinator: TravelCoordinator;
   private agentStatuses: AgentStatus[];
 
   constructor(emit: EventEmitter) {
     this.emit = emit;
+    this.coordinator = new TravelCoordinator(emit);
     this.agentStatuses = createInitialAgentStatuses();
   }
 
@@ -70,51 +77,33 @@ export class TravelOrchestrator {
   async optimize(request: ParsedRequest): Promise<OptimizationResult> {
     this.emit({
       type: "orchestrator_start",
-      data: { message: "Scraping live web data, then assigning tasks to 9 AI agents…" },
+      data: { message: "Researching live data, then coordinating 9 agents…" },
       timestamp: Date.now(),
     });
 
-    let enriched = { ...request };
+    let enriched = await this.coordinator.scrapeAndEnrich(
+      request,
+      scrapeTripData,
+      SCRAPE_TIMEOUT_MS
+    );
 
-    try {
-      const scraped = await Promise.race([
-        scrapeTripData(
-          request.destination,
-          request.origin,
-          request.userLocation,
-          (msg) => {
-            this.emit({
-              type: "scrape_progress",
-              data: { message: msg },
-              timestamp: Date.now(),
-            });
-          }
-        ),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Scrape timed out")), SCRAPE_TIMEOUT_MS)
-        ),
-      ]);
-      enriched = {
-        ...request,
-        origin: request.origin ?? scraped.originCity,
-        scrapedData: scraped,
-      };
+    if (enriched.scrapedData) {
       this.emit({
         type: "scrape_complete",
-        data: { scrapedData: scraped },
+        data: { scrapedData: enriched.scrapedData },
         timestamp: Date.now(),
       });
-    } catch (err) {
+    } else {
       this.emit({
         type: "scrape_complete",
-        data: { message: String(err) },
+        data: { message: "Scrape skipped or timed out" },
         timestamp: Date.now(),
       });
     }
 
     this.emit({
       type: "orchestrator_start",
-      data: { message: "Dispatching 9 agents in 3 waves…" },
+      data: { message: "Coordinator dispatching agents in 3 waves…" },
       timestamp: Date.now(),
     });
 
@@ -125,7 +114,6 @@ export class TravelOrchestrator {
       timestamp: Date.now(),
     });
 
-    // Run all agents ONCE (balanced). Budget/luxury are derived instantly.
     const balancedPlan = await this.runAgentTaskPlan(enriched, "balanced", undefined, true);
     this.emit({
       type: "plan_ready",
@@ -154,13 +142,13 @@ export class TravelOrchestrator {
     this.emit({
       type: "orchestrator_complete",
       data: {
-        message: "All 9 agents complete. 3 optimized plans ready.",
+        message: "Coordinator complete — 3 optimized plans ready.",
         totalSavings,
       },
       timestamp: Date.now(),
     });
 
-    return {
+    const result: OptimizationResult = {
       request: enriched,
       assumptions,
       plans,
@@ -170,6 +158,9 @@ export class TravelOrchestrator {
       totalSavingsAcrossAgents: totalSavings,
       scrapedData: enriched.scrapedData,
     };
+
+    this.coordinator.logRunComplete(enriched, result);
+    return result;
   }
 
   async rerunAgents(
@@ -199,8 +190,7 @@ export class TravelOrchestrator {
     }
 
     const route = buildTripRoute(request);
-
-    return {
+    const partial: Partial<OptimizationResult> = {
       request,
       plans,
       itinerary: route.days,
@@ -208,6 +198,20 @@ export class TravelOrchestrator {
       agentStatuses: [...this.agentStatuses],
       totalSavingsAcrossAgents: plans.reduce((sum, p) => sum + p.totalSavings, 0),
     };
+
+    if (partial.plans && partial.totalSavingsAcrossAgents != null) {
+      this.coordinator.logRunComplete(request, {
+        request,
+        assumptions: [],
+        plans: partial.plans,
+        itinerary: partial.itinerary ?? [],
+        route: partial.route!,
+        agentStatuses: partial.agentStatuses ?? [],
+        totalSavingsAcrossAgents: partial.totalSavingsAcrossAgents,
+      });
+    }
+
+    return partial;
   }
 
   private async runAgentTaskPlan(
@@ -235,13 +239,13 @@ export class TravelOrchestrator {
       if (liveUpdates) this.emit(event);
     };
 
-    const { results } = await dispatchAgentTasks(
+    const { results } = await this.coordinator.dispatchAgents(
       request,
       style,
       onProgress,
       taskAssignHandler,
       filterAgents,
-      { live: liveUpdates }
+      liveUpdates
     );
 
     const efficiencyResult = results.get("efficiency");
@@ -253,10 +257,13 @@ export class TravelOrchestrator {
       efficiencyResult?.verifiedLineItems ??
       agentResults.flatMap((r) => r.lineItems);
 
-    const opportunities = [
-      ...agentResults.flatMap((r) => r.opportunities),
-      ...(efficiencyResult?.opportunities ?? []),
-    ];
+    const opportunities = enrichOpportunities(
+      [
+        ...agentResults.flatMap((r) => r.opportunities),
+        ...(efficiencyResult?.opportunities ?? []),
+      ],
+      request
+    );
 
     const costAudit = efficiencyResult?.costAudit;
     const totalBaseCost = lineItems.reduce((s, i) => s + i.baseCost, 0);

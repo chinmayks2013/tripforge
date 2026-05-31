@@ -59,7 +59,7 @@ export default function AssumptionsChecklist({
   };
 
   return (
-    <div className="glass rounded-2xl overflow-hidden">
+    <div className="glass-elevated rounded-2xl overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between p-5 hover:bg-white/[0.02] transition-colors"
