@@ -59,12 +59,20 @@ function fallbackInsight(
       }
       break;
     case "attractions":
-      recs.push(
-        (facts.museums as number) > 5
-          ? "Bundle museums with a city pass — saves vs individual tickets"
-          : "Prioritize free-entry days and walking tours"
-      );
-      boost = style === "budget" ? 0.12 : 0.07;
+      if (request.attractionIntensity === "minimal") {
+        recs.push("Limit activities to one cost-effective highlight per day and favor free parks or scenic neighborhoods.");
+        boost = 0.14;
+      } else if (request.attractionIntensity === "low") {
+        recs.push("Lean into free or low-cost attractions, plus one paid highlight each day.");
+        boost = 0.11;
+      } else {
+        recs.push(
+          (facts.museums as number) > 5
+            ? "Bundle museums with a city pass — saves vs individual tickets"
+            : "Prioritize free-entry days and walking tours"
+        );
+        boost = style === "budget" ? 0.12 : 0.07;
+      }
       break;
     case "savings":
       recs.push(
@@ -110,10 +118,21 @@ async function callOpenAI(
   agentId: Exclude<AgentId, "flight">,
   request: ParsedRequest,
   scrape: AgentScrapeSnapshot,
-  style: TravelStyle
+  style: TravelStyle,
+  ctx?: { priorAgentSummaries?: { agentId: AgentId; message: string; savings: number }[] }
 ): Promise<AIInsight | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
+
+  const priorNotes = ctx?.priorAgentSummaries?.length
+    ? "\n\nPrior agent findings:\n" +
+      ctx.priorAgentSummaries
+        .map(
+          (summary) =>
+            `- ${summary.agentId}: ${summary.message} (saved $${summary.savings})`
+        )
+        .join("\n")
+    : "";
 
   const prompt = `${AGENT_PROMPTS[agentId]}
 
@@ -121,8 +140,10 @@ Destination: ${request.destination}
 Style: ${style}
 Group: ${request.groupSize}
 Duration: ${request.duration ?? 5} days
+Travel mode: ${request.travelMode}
+Attraction intensity: ${request.attractionIntensity ?? "normal"}
 Scraped: ${scrape.summary}
-Facts: ${JSON.stringify(scrape.facts)}
+Facts: ${JSON.stringify(scrape.facts)}${priorNotes}
 
 Respond as JSON: {"summary":"one sentence","recommendations":["r1","r2"],"savingsBoost":0.08,"confidence":"high|medium|low"}`;
 
@@ -189,13 +210,14 @@ export async function runAgentAI(
   agentId: AgentId,
   request: ParsedRequest,
   scrape: AgentScrapeSnapshot,
-  style: TravelStyle
+  style: TravelStyle,
+  ctx?: { priorAgentSummaries?: { agentId: AgentId; message: string; savings: number }[] }
 ): Promise<AIInsight> {
   if (agentId === "flight") {
     throw new Error("Flight agent uses web scraping only — no AI");
   }
 
-  const live = await callOpenAI(agentId, request, scrape, style);
+  const live = await callOpenAI(agentId, request, scrape, style, ctx);
   if (live) return live;
 
   return fallbackInsight(agentId, request, scrape, style);

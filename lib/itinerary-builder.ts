@@ -232,6 +232,11 @@ function pickDayPlaces(
   const picked: PlaceOfInterest[] = [];
   const transit = allPlaces.find((p) => p.category === "transit");
 
+  const skipLodging = request.durationHours != null && request.durationHours < 18;
+  const attractionIntensity = request.attractionIntensity ?? "normal";
+  const isMinimal = attractionIntensity === "minimal";
+  const isLow = attractionIntensity === "low";
+
   if (day === 1) {
     if (transit) {
       pool.markUsed(`${transit.id}-arrival`);
@@ -242,18 +247,28 @@ function pickDayPlaces(
       });
     }
 
-    const lodging = pool.takeNext("lodging");
-    if (lodging) picked.push(lodging);
+    if (!skipLodging) {
+      const lodging = pool.takeNext("lodging");
+      if (lodging) picked.push(lodging);
+    }
 
     pool.markUsed(`citypass-day${day}`);
     picked.push(makeCityPassStop(profile, request, day));
 
     const a1 = pool.takeNext("attraction");
-    const a2 = pool.takeNext("attraction");
     if (a1) picked.push(a1);
-    const lunch = pool.takeNext("food");
-    if (lunch) picked.push(lunch);
-    if (a2) picked.push(a2);
+    if (!isMinimal) {
+      const lunch = pool.takeNext("food");
+      if (lunch) picked.push(lunch);
+    }
+    if (!isMinimal && !isLow) {
+      const a2 = pool.takeNext("attraction");
+      if (a2) picked.push(a2);
+    }
+    if (isMinimal) {
+      const food = pool.takeNext("food");
+      if (food) picked.push(food);
+    }
 
     const gas = pool.takeNext("gas");
     if (gas) picked.push(gas);
@@ -261,8 +276,10 @@ function pickDayPlaces(
     const attraction = pool.takeNext("attraction");
     if (attraction) picked.push(attraction);
 
-    const food = pool.takeNext("food");
-    if (food) picked.push(food);
+    if (!isMinimal) {
+      const food = pool.takeNext("food");
+      if (food) picked.push(food);
+    }
 
     const rest = pool.takeNext("rest");
     if (rest) picked.push(rest);
@@ -290,19 +307,28 @@ function pickDayPlaces(
     const a1 = pool.takeNext("attraction");
     if (a1) picked.push(a1);
 
-    if (day % 2 === 0) {
+    if (isMinimal) {
+      const food = pool.takeNext("food");
+      if (food) picked.push(food);
       const rest = pool.takeNext("rest");
       if (rest) picked.push(rest);
+    } else {
+      if (day % 2 === 0) {
+        const rest = pool.takeNext("rest");
+        if (rest) picked.push(rest);
+      }
+
+      const gas = pool.takeNext("gas");
+      if (gas) picked.push(gas);
+
+      const food = pool.takeNext("food");
+      if (food) picked.push(food);
+
+      if (!isLow) {
+        const a2 = pool.takeNext("attraction");
+        if (a2) picked.push(a2);
+      }
     }
-
-    const gas = pool.takeNext("gas");
-    if (gas) picked.push(gas);
-
-    const food = pool.takeNext("food");
-    if (food) picked.push(food);
-
-    const a2 = pool.takeNext("attraction");
-    if (a2) picked.push(a2);
   }
 
   return picked;

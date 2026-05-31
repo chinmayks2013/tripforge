@@ -5,6 +5,11 @@ import { ProgressCallback } from "./index";
 
 export interface AgentRunContext {
   onScrapeProgress?: (agentId: AgentId, message: string) => void;
+  priorAgentSummaries?: {
+    agentId: AgentId;
+    message: string;
+    savings: number;
+  }[];
 }
 
 export interface PreparedAgentData {
@@ -36,7 +41,7 @@ export async function prepareAgent(
   }
 
   onProgress(agentId, 62, "AI analyzing scraped data…");
-  const ai = await runAgentAI(agentId, request, snapshot, style);
+  const ai = await runAgentAI(agentId, request, snapshot, style, ctx);
   onProgress(
     agentId,
     78,

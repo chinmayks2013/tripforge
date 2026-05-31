@@ -43,6 +43,21 @@ function extractGroupSize(query: string): number {
   return 2;
 }
 
+function extractDurationHours(query: string): number | undefined {
+  const lower = query.toLowerCase();
+  const hourMatch = lower.match(/(\d+)\s*(?:hours|hrs|hour|h)\b/);
+  if (hourMatch) {
+    return parseInt(hourMatch[1], 10);
+  }
+  if (lower.includes("half day") || lower.includes("half-day")) {
+    return 12;
+  }
+  if (lower.includes("overnight")) {
+    return 18;
+  }
+  return undefined;
+}
+
 function extractDuration(query: string): number {
   const lower = query.toLowerCase();
   const m = lower.match(/(\d+)\s*(?:day|night|week)/);
@@ -128,10 +143,34 @@ function extractMemberships(query: string): string[] {
   return memberships;
 }
 
+function extractTravelMode(query: string): "flight" | "bus" | "train" | "car" | "unknown" {
+  const lower = query.toLowerCase();
+  if (/\b(bus|coach|bus trip|by bus)\b/.test(lower)) return "bus";
+  if (/\b(train|rail|railway|amtrak|by train)\b/.test(lower)) return "train";
+  if (/\b(driving|drive|road trip|rent a car|rental car|by car|with car)\b/.test(lower)) return "car";
+  if (/\b(flight|fly|airplane|air travel|by plane|by air)\b/.test(lower)) return "flight";
+  return "unknown";
+}
+
+function computeAttractionIntensity(
+  destination: string,
+  budget: number | undefined,
+  days: number
+): "minimal" | "low" | "normal" | undefined {
+  if (budget == null || days <= 0) return undefined;
+  const destinationData = getDestinationData(destination);
+  const avgLocalDaily = Math.max(120, Math.round(destinationData.baseCost / 5));
+  const budgetPerDay = budget / days;
+  if (budgetPerDay < avgLocalDaily * 0.75) return "minimal";
+  if (budgetPerDay < avgLocalDaily) return "low";
+  return "normal";
+}
+
 function hasCar(query: string): boolean {
   const lower = query.toLowerCase();
   return (
     lower.includes("driving") ||
+    lower.includes("drive") ||
     lower.includes("rent a car") ||
     lower.includes("rental car") ||
     lower.includes("road trip") ||
@@ -164,15 +203,22 @@ function extractPartyTrip(query: string): { isPartyTrip: boolean; partyType?: st
 export function parseNaturalLanguage(query: string): ParsedRequest {
   const destination = extractDestination(query);
   const party = extractPartyTrip(query);
+  const durationHours = extractDurationHours(query);
+  const durationDays = durationHours ? Math.max(1, Math.ceil(durationHours / 24)) : extractDuration(query);
+  const budget = extractBudget(query);
+  const travelMode = extractTravelMode(query);
   return {
     destination,
     origin: extractOrigin(query),
-    duration: extractDuration(query),
+    duration: durationDays,
+    durationHours,
+    travelMode,
     groupSize: extractGroupSize(query),
-    budget: extractBudget(query),
+    budget,
     interests: extractInterests(query),
     hasCar: hasCar(query),
     hasMemberships: extractMemberships(query),
+    attractionIntensity: computeAttractionIntensity(destination, budget, durationDays),
     isPartyTrip: party.isPartyTrip,
     partyType: party.partyType,
     rawQuery: query,

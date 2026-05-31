@@ -1,4 +1,5 @@
 import { AgentId, ParsedRequest, TravelStyle } from "../types";
+import { getDestinationData } from "../locations";
 
 export type TaskStatus = "pending" | "assigned" | "running" | "complete" | "skipped";
 
@@ -63,6 +64,23 @@ function taskTemplates(
   style: TravelStyle
 ): TaskTemplate[] {
   const ctx = tripContext(request);
+  const destinationData = getDestinationData(request.destination);
+  const avgLocalDaily = Math.max(120, Math.round(destinationData.baseCost / 5));
+  const budgetPerDay =
+    request.budget != null && ctx.days > 0
+      ? request.budget / ctx.days
+      : undefined;
+  const budgetPressure = budgetPerDay
+    ? budgetPerDay < avgLocalDaily * 0.75
+      ? "minimal"
+      : budgetPerDay < avgLocalDaily
+      ? "low"
+      : "normal"
+    : "normal";
+  const attractionIntensity = request.attractionIntensity ?? budgetPressure;
+  const shouldIncludeFlight = !["bus", "train", "car"].includes(request.travelMode);
+  const shouldIncludeLodging =
+    request.durationHours == null || request.durationHours >= 18;
   const styleLabel =
     style === "budget" ? "lowest cost" : style === "luxury" ? "premium" : "best value";
 
@@ -72,13 +90,17 @@ function taskTemplates(
       wave: 1,
       priority: 1,
       title: "Scrape & price flights",
-      objective: `Live web scrape + fare analysis (no AI): ${ctx.origin} → ${ctx.dest}`,
+      objective: shouldIncludeFlight
+        ? `Live web scrape + fare analysis (no AI): ${ctx.origin} → ${ctx.dest}`
+        : `Skip flight search for ${request.travelMode} travel`,
       dependencies: [],
       context: {
         origin: ctx.origin,
         destination: ctx.dest,
         travelers: ctx.travelers,
         style,
+        travelMode: request.travelMode,
+        skipped: !shouldIncludeFlight,
       },
     },
     {
@@ -86,9 +108,17 @@ function taskTemplates(
       wave: 2,
       priority: 2,
       title: "Scrape & calculate lodging",
-      objective: `${ctx.days - 1} nights — web scrape hotel data + AI analysis`,
+      objective: shouldIncludeLodging
+        ? `${ctx.days - 1} nights — web scrape hotel data + AI analysis`
+        : `Skip lodging for same-day or short trip`,
       dependencies: AGENT_DEPENDENCIES.lodging ?? [],
-      context: { destination: ctx.dest, nights: ctx.days - 1, travelers: ctx.travelers, style },
+      context: {
+        destination: ctx.dest,
+        nights: Math.max(0, ctx.days - 1),
+        travelers: ctx.travelers,
+        style,
+        skipped: !shouldIncludeLodging,
+      },
     },
     {
       agentId: "transport",
@@ -97,16 +127,27 @@ function taskTemplates(
       title: "Scrape & calculate transport",
       objective: request.hasCar
         ? `Scrape transit/parking data + AI for ${ctx.days} days`
-        : `Scrape transit network + AI for ${ctx.dest}`,
+        : `Scrape ground transport + AI for ${ctx.dest}`,
       dependencies: AGENT_DEPENDENCIES.transport ?? [],
-      context: { destination: ctx.dest, days: ctx.days, hasCar: request.hasCar, style },
+      context: {
+        destination: ctx.dest,
+        days: ctx.days,
+        hasCar: request.hasCar,
+        travelMode: request.travelMode,
+        style,
+      },
     },
     {
       agentId: "attractions",
       wave: 4,
       priority: 4,
       title: "Scrape & plan activities",
-      objective: `${ctx.days}-day activities — scrape POIs + AI recommendations`,
+      objective:
+        attractionIntensity === "minimal"
+          ? `${ctx.days}-day highlights with free/low-cost attractions`
+          : attractionIntensity === "low"
+          ? `${ctx.days}-day highlights with budget-aware attractions`
+          : `${ctx.days}-day activities — scrape POIs + AI recommendations`,
       dependencies: AGENT_DEPENDENCIES.attractions ?? [],
       context: {
         destination: ctx.dest,
@@ -114,6 +155,8 @@ function taskTemplates(
         travelers: ctx.travelers,
         style,
         isPartyTrip: !!request.isPartyTrip,
+        attractionIntensity,
+        travelMode: request.travelMode,
       },
     },
     {
@@ -149,6 +192,7 @@ function taskTemplates(
         origin: ctx.origin,
         days: ctx.days,
         style,
+        travelMode: request.travelMode,
         ...(ctx.distance != null ? { distanceMiles: ctx.distance } : {}),
       },
     },
@@ -183,9 +227,15 @@ function taskTemplates(
         ...(ctx.budget != null ? { budgetCap: ctx.budget } : {}),
       },
     },
-  ];
+  ]; 
 
-  return templates;
+  const filteredTemplates = templates.filter((task) => {
+    if (task.agentId === "flight" && !shouldIncludeFlight) return false;
+    if (task.agentId === "lodging" && !shouldIncludeLodging) return false;
+    return true;
+  });
+
+  return filteredTemplates;
 }
 
 export function buildAgentTaskPlan(

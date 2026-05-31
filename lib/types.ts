@@ -1,5 +1,7 @@
 export type TravelStyle = "budget" | "balanced" | "luxury";
 
+export type TravelMode = "flight" | "bus" | "train" | "car" | "unknown";
+
 export type AgentId =
   | "flight"
   | "lodging"
@@ -30,11 +32,14 @@ export interface ParsedRequest {
   startDate?: string;
   endDate?: string;
   duration?: number;
+  durationHours?: number;
+  travelMode: TravelMode;
   groupSize: number;
   budget?: number;
   interests: string[];
   hasCar: boolean;
   hasMemberships: string[];
+  attractionIntensity?: "minimal" | "low" | "normal";
   rawQuery: string;
   /** Event / celebration trip (bachelor party, birthday, etc.) */
   isPartyTrip?: boolean;
@@ -216,12 +221,19 @@ export interface OptimizationResult {
   scrapedData?: ScrapedTripData;
 }
 
+export interface AgentSummary {
+  agentId: AgentId;
+  message: string;
+  savings: number;
+}
+
 export interface AgentEvent {
   type:
     | "agent_start"
     | "agent_progress"
     | "agent_complete"
     | "agent_savings"
+    | "agent_briefing"
     | "orchestrator_start"
     | "orchestrator_complete"
     | "plan_ready"

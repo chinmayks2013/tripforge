@@ -12,7 +12,13 @@ import {
   ProgressCallback,
   AgentRunContext,
 } from "../agents";
-import { AgentEvent, AgentId, ParsedRequest, TravelStyle } from "../types";
+import {
+  AgentEvent,
+  AgentId,
+  AgentSummary,
+  ParsedRequest,
+  TravelStyle,
+} from "../types";
 import {
   AgentTask,
   buildAgentTaskPlan,
@@ -71,6 +77,31 @@ function fallbackAgentResult(agentId: AgentId, message: string): AgentResult {
     savings: 0,
     message,
   };
+}
+
+function buildAgentBriefing(
+  agentId: AgentId,
+  priorResults: Map<AgentId, AgentResult>
+): { briefing: string; summaries: AgentSummary[] } {
+  const summaries: AgentSummary[] = Array.from(priorResults.values()).map(
+    (result) => ({
+      agentId: result.agentId,
+      message: result.message,
+      savings: result.savings,
+    })
+  );
+
+  const briefing = summaries.length
+    ? `Use earlier agent findings to refine ${agentId} recommendations.\n` +
+      summaries
+        .map(
+          (summary) =>
+            `- ${summary.agentId}: ${summary.message} (saved $${summary.savings})`
+        )
+        .join("\n")
+    : `No prior agent findings available for ${agentId}. Start from live data.`;
+
+  return { briefing, summaries };
 }
 
 function summarizeAgentResult(result: AgentResult) {
@@ -142,6 +173,11 @@ export async function dispatchAgentTasks(
     });
 
     task.status = "assigned";
+    const { briefing, summaries: priorAgentSummaries } = buildAgentBriefing(
+      task.agentId,
+      results
+    );
+
     emitEvent({
       type: "task_assigned",
       agentId: task.agentId,
@@ -153,6 +189,17 @@ export async function dispatchAgentTasks(
         dependencies: task.dependencies,
         context: task.context,
         style,
+        briefing,
+      },
+      timestamp: Date.now(),
+    });
+
+    emitEvent({
+      type: "agent_briefing",
+      agentId: task.agentId,
+      data: {
+        briefing,
+        priorAgents: priorAgentSummaries,
       },
       timestamp: Date.now(),
     });
@@ -177,6 +224,9 @@ export async function dispatchAgentTasks(
         partialSavings: task.agentId === "budget" ? partialSavings : undefined,
         priorResults:
           task.agentId === "efficiency" ? new Map(results) : undefined,
+        priorAgentSummaries: priorAgentSummaries.length
+          ? priorAgentSummaries
+          : undefined,
         onScrapeProgress: (agentId, message) => {
           emitEvent({
             type: "scrape_progress",
