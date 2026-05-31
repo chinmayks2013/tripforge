@@ -10,16 +10,18 @@ import {
   runEfficiencyAgent,
   AgentResult,
   ProgressCallback,
+  AgentRunContext,
 } from "../agents";
 import { AgentEvent, AgentId, ParsedRequest, TravelStyle } from "../types";
 import {
   AgentTask,
   buildAgentTaskPlan,
 } from "./agent-tasks";
+import { traceAgentRun } from "../wandb/weave-client";
 
 export type TaskEventEmitter = (event: AgentEvent) => void;
 
-type AgentRunnerContext = {
+type AgentRunnerContext = AgentRunContext & {
   partialSavings?: number;
   priorResults?: Map<AgentId, AgentResult>;
 };
@@ -32,18 +34,55 @@ type AgentRunner = (
 ) => Promise<AgentResult>;
 
 const AGENT_RUNNERS: Record<AgentId, AgentRunner> = {
-  flight: (req, style, cb) => runFlightAgent(req, style, cb),
-  lodging: (req, style, cb) => runLodgingAgent(req, style, cb),
-  transport: (req, style, cb) => runTransportAgent(req, style, cb),
-  attractions: (req, style, cb) => runAttractionsAgent(req, style, cb),
-  savings: (req, style, cb) => runSavingsAgent(req, style, cb),
-  group: (req, style, cb) => runGroupAgent(req, style, cb),
-  routing: (req, style, cb) => runRoutingAgent(req, style, cb),
+  flight: (req, style, cb, ctx) => runFlightAgent(req, style, cb, ctx),
+  lodging: (req, style, cb, ctx) => runLodgingAgent(req, style, cb, ctx),
+  transport: (req, style, cb, ctx) => runTransportAgent(req, style, cb, ctx),
+  attractions: (req, style, cb, ctx) => runAttractionsAgent(req, style, cb, ctx),
+  savings: (req, style, cb, ctx) => runSavingsAgent(req, style, cb, ctx),
+  group: (req, style, cb, ctx) => runGroupAgent(req, style, cb, ctx),
+  routing: (req, style, cb, ctx) => runRoutingAgent(req, style, cb, ctx),
   budget: (req, style, cb, ctx) =>
-    runBudgetAgent(req, style, cb, ctx?.partialSavings ?? 0),
+    runBudgetAgent(req, style, cb, ctx?.partialSavings ?? 0, ctx),
   efficiency: (req, style, cb, ctx) =>
-    runEfficiencyAgent(req, style, cb, ctx?.priorResults ?? new Map()),
+    runEfficiencyAgent(req, style, cb, ctx?.priorResults ?? new Map(), ctx),
 };
+
+const AGENT_TIMEOUT_MS: Partial<Record<AgentId, number>> = {
+  flight: 18_000,
+  lodging: 10_000,
+  transport: 10_000,
+  attractions: 10_000,
+  savings: 8_000,
+  group: 8_000,
+  routing: 10_000,
+  budget: 8_000,
+  efficiency: 10_000,
+};
+
+function agentTimeoutMs(agentId: AgentId): number {
+  return AGENT_TIMEOUT_MS[agentId] ?? 10_000;
+}
+
+function fallbackAgentResult(agentId: AgentId, message: string): AgentResult {
+  return {
+    agentId,
+    lineItems: [],
+    opportunities: [],
+    savings: 0,
+    message,
+  };
+}
+
+function summarizeAgentResult(result: AgentResult) {
+  return {
+    agentId: result.agentId,
+    savings: result.savings,
+    lineItemCount: result.lineItems.length,
+    opportunityCount: result.opportunities.length,
+    usedLiveAi: Boolean(result.aiInsight),
+    message: result.message,
+  };
+}
 
 export interface DispatchResult {
   tasks: AgentTask[];
@@ -52,8 +91,8 @@ export interface DispatchResult {
 }
 
 /**
- * Runs agents one at a time in priority order.
- * Live web scraping happens before this pipeline (see TravelOrchestrator).
+ * Runs agents sequentially. Each agent scrapes live web data;
+ * all except flight also run AI analysis on the scraped context.
  */
 export async function dispatchAgentTasks(
   request: ParsedRequest,
@@ -98,11 +137,7 @@ export async function dispatchAgentTasks(
   for (const task of orderedTasks) {
     emitEvent({
       type: "task_wave_start",
-      data: {
-        wave: task.wave,
-        agents: [task.agentId],
-        style,
-      },
+      data: { wave: task.wave, agents: [task.agentId], style },
       timestamp: Date.now(),
     });
 
@@ -142,17 +177,59 @@ export async function dispatchAgentTasks(
         partialSavings: task.agentId === "budget" ? partialSavings : undefined,
         priorResults:
           task.agentId === "efficiency" ? new Map(results) : undefined,
+        onScrapeProgress: (agentId, message) => {
+          emitEvent({
+            type: "scrape_progress",
+            agentId,
+            data: { message, agentId },
+            timestamp: Date.now(),
+          });
+        },
       });
 
-    const result = await Promise.race([
-      run(),
-      new Promise<AgentResult>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`${task.agentId} agent timed out`)),
-          15_000
-        )
-      ),
-    ]);
+    const timeoutMs = agentTimeoutMs(task.agentId);
+    let result: AgentResult;
+
+    try {
+      result = await traceAgentRun(
+        task.agentId,
+        {
+          title: task.title,
+          wave: task.wave,
+          style,
+          objective: task.objective,
+        },
+        () =>
+          Promise.race([
+            run(),
+            new Promise<AgentResult>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`${task.agentId} agent timed out after ${timeoutMs}ms`)),
+                timeoutMs
+              )
+            ),
+          ]),
+        summarizeAgentResult
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : `${task.agentId} agent failed`;
+      result = fallbackAgentResult(task.agentId, message);
+      emitEvent({
+        type: "agent_progress",
+        agentId: task.agentId,
+        data: { progress: 100, message, error: true },
+        timestamp: Date.now(),
+      });
+    }
+
+    if (result.scrapedData) {
+      workingRequest = {
+        ...workingRequest,
+        scrapedData: result.scrapedData,
+        origin: workingRequest.origin ?? result.scrapedData.originCity,
+      };
+    }
 
     if (live) {
       progress(task.agentId, 100, result.message, result.savings);
@@ -175,12 +252,7 @@ export async function dispatchAgentTasks(
       timestamp: Date.now(),
     });
 
-    options?.onWaveComplete?.(
-      task.wave,
-      [task.agentId],
-      result.savings
-    );
-
+    options?.onWaveComplete?.(task.wave, [task.agentId], result.savings);
     await new Promise((r) => setTimeout(r, 0));
   }
 

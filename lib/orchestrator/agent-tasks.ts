@@ -71,8 +71,8 @@ function taskTemplates(
       agentId: "flight",
       wave: 1,
       priority: 1,
-      title: "Calculate flight costs",
-      objective: `Rule-based fare analysis: ${ctx.origin} → ${ctx.dest} for ${ctx.travelers} traveler(s)`,
+      title: "Scrape & price flights",
+      objective: `Live web scrape + fare analysis (no AI): ${ctx.origin} → ${ctx.dest}`,
       dependencies: [],
       context: {
         origin: ctx.origin,
@@ -85,8 +85,8 @@ function taskTemplates(
       agentId: "lodging",
       wave: 2,
       priority: 2,
-      title: "Calculate lodging",
-      objective: `${ctx.days - 1} nights in ${ctx.dest} — rule-based pricing tables`,
+      title: "Scrape & calculate lodging",
+      objective: `${ctx.days - 1} nights — web scrape hotel data + AI analysis`,
       dependencies: AGENT_DEPENDENCIES.lodging ?? [],
       context: { destination: ctx.dest, nights: ctx.days - 1, travelers: ctx.travelers, style },
     },
@@ -94,10 +94,10 @@ function taskTemplates(
       agentId: "transport",
       wave: 3,
       priority: 3,
-      title: "Calculate transport",
+      title: "Scrape & calculate transport",
       objective: request.hasCar
-        ? `Rental, parking, and transit rules for ${ctx.days} days`
-        : `Transit passes and city cards for ${ctx.dest}`,
+        ? `Scrape transit/parking data + AI for ${ctx.days} days`
+        : `Scrape transit network + AI for ${ctx.dest}`,
       dependencies: AGENT_DEPENDENCIES.transport ?? [],
       context: { destination: ctx.dest, days: ctx.days, hasCar: request.hasCar, style },
     },
@@ -105,8 +105,8 @@ function taskTemplates(
       agentId: "attractions",
       wave: 4,
       priority: 4,
-      title: "Calculate activities",
-      objective: `${ctx.days}-day activity costs from destination tables`,
+      title: "Scrape & plan activities",
+      objective: `${ctx.days}-day activities — scrape POIs + AI recommendations`,
       dependencies: AGENT_DEPENDENCIES.attractions ?? [],
       context: {
         destination: ctx.dest,
@@ -120,8 +120,8 @@ function taskTemplates(
       agentId: "savings",
       wave: 5,
       priority: 5,
-      title: "Apply discount rules",
-      objective: `Membership and promo rules (known: ${ctx.memberships})`,
+      title: "Scrape & apply deals",
+      objective: `Scrape tourism context + AI match promos (${ctx.memberships})`,
       dependencies: AGENT_DEPENDENCIES.savings ?? [],
       context: { destination: ctx.dest, memberships: ctx.memberships, style },
     },
@@ -129,11 +129,11 @@ function taskTemplates(
       agentId: "group",
       wave: 6,
       priority: 6,
-      title: "Apply group rules",
+      title: "Scrape & optimize group",
       objective:
         ctx.travelers >= 4
-          ? `Group rate tables for ${ctx.travelers} travelers`
-          : `Solo/duo pricing — no group bulk rates`,
+          ? `Scrape venues + AI group rates for ${ctx.travelers} travelers`
+          : `Scrape + AI duo/family bundle options`,
       dependencies: AGENT_DEPENDENCIES.group ?? [],
       context: { destination: ctx.dest, travelers: ctx.travelers, style },
     },
@@ -141,8 +141,8 @@ function taskTemplates(
       agentId: "routing",
       wave: 7,
       priority: 7,
-      title: "Sequence daily routes",
-      objective: `Neighborhood clustering for ${ctx.days} days in ${ctx.dest}`,
+      title: "Scrape & sequence routes",
+      objective: `Scrape POI clusters + AI route order for ${ctx.days} days`,
       dependencies: AGENT_DEPENDENCIES.routing ?? [],
       context: {
         destination: ctx.dest,
@@ -156,10 +156,10 @@ function taskTemplates(
       agentId: "budget",
       wave: 8,
       priority: 8,
-      title: "Budget reconciliation",
+      title: "Scrape & reconcile budget",
       objective: ctx.budget
-        ? `Enforce $${ctx.budget} cap across all categories`
-        : `Cross-category meal and trade-off rules for ${styleLabel} plan`,
+        ? `Ingest scraped costs + AI enforce $${ctx.budget} cap`
+        : `Scrape prior agent data + AI trade-offs for ${styleLabel} plan`,
       dependencies: AGENT_DEPENDENCIES.budget ?? [],
       context: {
         destination: ctx.dest,
@@ -171,10 +171,10 @@ function taskTemplates(
       agentId: "efficiency",
       wave: 9,
       priority: 9,
-      title: "Verify cost accuracy",
+      title: "Scrape & verify costs",
       objective: ctx.distance
-        ? `Validate totals against ${ctx.distance} mi scraped route + cost floors`
-        : `Apply destination cost floors and savings caps`,
+        ? `Scrape cost floors + AI verify against ${ctx.distance} mi route`
+        : `Scrape benchmarks + AI verify destination cost floors`,
       dependencies: AGENT_DEPENDENCIES.efficiency ?? [],
       context: {
         destination: ctx.dest,

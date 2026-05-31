@@ -32,7 +32,7 @@ import {
   ScrapedTripData,
   UserLocation,
 } from "@/lib/types";
-import { createInitialAgentStatuses } from "@/lib/agents";
+import { createInitialAgentStatuses } from "@/lib/agents/status";
 
 const TripJourney = dynamic(() => import("@/components/TripJourney"), {
   ssr: false,
@@ -386,8 +386,9 @@ export default function Home() {
                   <span className="gradient-text">multi-agent research</span>
                 </h1>
                 <p className="text-white/45 text-sm sm:text-base leading-relaxed max-w-xl mx-auto">
-                  Describe your journey once. A live web scrape gathers route data, then
-                  nine specialist agents run sequentially to compare costs and surface savings.
+                  Describe your journey once. Every agent scrapes live web data; the flight
+                  agent analyzes fares directly, while all other agents add AI on top of
+                  their scraped context.
                 </p>
                 <AnimatedHeroDestinations />
               </motion.div>
@@ -406,8 +407,8 @@ export default function Home() {
                   title="Building your optimized itinerary"
                   description={
                     isScraping
-                      ? "Live web scrape — geocoding, weather, and route distance"
-                      : "Running agents one at a time in sequential order"
+                      ? "Agent scraping live data from OpenStreetMap, weather, and web sources"
+                      : "Sequential pipeline — scrape then AI analysis per agent"
                   }
                 />
               </motion.div>

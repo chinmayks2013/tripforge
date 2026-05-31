@@ -15,7 +15,6 @@ import { dispatchAgentTasks } from "./dispatcher";
 import { ProgressCallback } from "../agents";
 import {
   flushOptimizationTrace,
-  logAgentDispatch,
   logScrapeTrace,
   logWaveComplete,
 } from "../wandb/weave-client";
@@ -42,17 +41,9 @@ export class TravelCoordinator {
     this.emit = emit;
   }
 
-  /** Publish the master task plan (formerly coordinator_agent.py loop). */
+  /** Build the master task plan (tracing happens when each agent actually runs). */
   publishTaskPlan(request: ParsedRequest, style: TravelStyle = "balanced") {
-    const tasks = buildAgentTaskPlan(request, style);
-    for (const task of tasks) {
-      logAgentDispatch(task.agentId, {
-        title: task.title,
-        wave: task.wave,
-        objective: task.objective,
-      });
-    }
-    return tasks;
+    return buildAgentTaskPlan(request, style);
   }
 
   async scrapeAndEnrich(
@@ -114,7 +105,7 @@ export class TravelCoordinator {
       {
         live,
         onWaveComplete: (wave, agents, savings) => {
-          logWaveComplete(wave, agents, savings);
+          void logWaveComplete(wave, agents, savings);
         },
       }
     );

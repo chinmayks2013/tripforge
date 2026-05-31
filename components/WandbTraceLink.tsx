@@ -4,21 +4,23 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Radio } from "lucide-react";
 import clsx from "clsx";
 
-const TRACE_URL = "https://wandb.ai/chinmayks2013/tripforge/weave";
-
 export default function WandbTraceLink() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [traceUrl, setTraceUrl] = useState("https://wandb.ai/chinmayks2013-student/TravelRook/weave");
 
   useEffect(() => {
     fetch("/api/wandb/status")
       .then((r) => r.json())
-      .then((d) => setEnabled(Boolean(d.configured)))
+      .then((d) => {
+        setEnabled(Boolean(d.configured));
+        if (d.weaveUrl) setTraceUrl(d.weaveUrl);
+      })
       .catch(() => setEnabled(false));
   }, []);
 
   return (
     <a
-      href={TRACE_URL}
+      href={traceUrl}
       target="_blank"
       rel="noopener noreferrer"
       className={clsx(

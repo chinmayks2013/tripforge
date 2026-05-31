@@ -14,9 +14,13 @@ const display = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "TravelRooks — Enterprise Trip Intelligence",
+  title: "TravelRooks — Trip Cost Optimization",
   description:
-    "AI-powered trip planning with nine specialist agents, live route research, verified pricing, and interactive itinerary optimization.",
+    "Sequential multi-agent trip planning with live flight scraping and rule-based cost optimization.",
+  icons: {
+    icon: "/travelrooks-logo.png",
+    apple: "/travelrooks-logo.png",
+  },
 };
 
 export default function RootLayout({

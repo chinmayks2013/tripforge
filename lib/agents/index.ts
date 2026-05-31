@@ -9,6 +9,14 @@ import {
 } from "../types";
 import { getDestinationData } from "../parser";
 import { auditAndRecalibratePlan } from "../cost/accuracy";
+import {
+  AgentRunContext,
+  applyAiSavings,
+  prepareAgent,
+} from "./agent-context";
+import { AgentScrapeSnapshot } from "../scraper/agent-scrapes";
+
+export type { AgentRunContext } from "./agent-context";
 
 export interface AgentResult {
   agentId: AgentId;
@@ -18,6 +26,9 @@ export interface AgentResult {
   message: string;
   costAudit?: CostAuditReport;
   verifiedLineItems?: CostLineItem[];
+  scrapedData?: import("../types").ScrapedTripData;
+  agentScrape?: AgentScrapeSnapshot;
+  aiInsight?: string;
 }
 
 export type ProgressCallback = (
@@ -47,23 +58,24 @@ function markDone(
 export async function runFlightAgent(
   request: ParsedRequest,
   style: TravelStyle,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, tripData } = await prepareAgent(
+    "flight",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: false }
+  );
+
   const dest = getDestinationData(request.destination);
   const perPerson = request.groupSize;
   const styleMult = style === "budget" ? 0.7 : style === "luxury" ? 2.2 : 1.0;
-  const scrapedData = request.scrapedData;
+  const scrapedData = tripData ?? request.scrapedData;
 
-  onProgress(
-    "flight",
-    20,
-    scrapedData?.distanceMiles
-      ? `Using ${scrapedData.distanceMiles} mi scraped route — analyzing fares…`
-      : "Applying rule-based fare tables…"
-  );
-  await agentPause();
-
-  onProgress("flight", 55, "Checking departure-day and fare-class savings…");
+  onProgress("flight", 85, "Analyzing fares from scraped route data…");
   await agentPause();
 
   const distanceMi = scrapedData?.distanceMiles ?? 800;
@@ -101,12 +113,14 @@ export async function runFlightAgent(
   markDone(
     onProgress,
     "flight",
-    `Flight pricing complete — saved $${savings}`,
+    `Web scrape + fare analysis — saved $${savings}`,
     savings
   );
 
   return {
     agentId: "flight",
+    scrapedData,
+    agentScrape: scrape,
     lineItems: [
       {
         category: "Flights",
@@ -120,15 +134,25 @@ export async function runFlightAgent(
     ],
     opportunities,
     savings,
-    message: `Rule-based fare analysis: saved $${savings}`,
+    message: `Web scraping + fare analysis: saved $${savings}`,
   };
 }
 
 export async function runLodgingAgent(
   request: ParsedRequest,
   style: TravelStyle,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "lodging",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   const dest = getDestinationData(request.destination);
   const nights = (request.duration ?? 5) - 1;
   const styleMult = style === "budget" ? 0.55 : style === "luxury" ? 2.5 : 1.0;
@@ -165,13 +189,23 @@ export async function runLodgingAgent(
   });
   if (style !== "luxury") optimizedCost -= offPeakSave;
 
+  const aiSave = applyAiSavings("lodging", baseCost, ai, opportunities);
+  optimizedCost -= aiSave;
+
   const lodgingSavings = baseCost - optimizedCost;
-  markDone(onProgress, "lodging", `Rule-based lodging estimate — $${lodgingSavings} savings`, lodgingSavings);
+  markDone(
+    onProgress,
+    "lodging",
+    `Scrape + AI lodging analysis — $${lodgingSavings} savings`,
+    lodgingSavings
+  );
 
   const lodgingType = style === "budget" ? "Hostel/ budget hotel" : style === "luxury" ? "4-star boutique hotel" : "Mid-range hotel";
 
   return {
     agentId: "lodging",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems: [
       {
         category: "Lodging",
@@ -185,15 +219,25 @@ export async function runLodgingAgent(
     ],
     opportunities,
     savings: baseCost - optimizedCost,
-    message: `Lodging calculated from destination pricing tables`,
+    message: `Web scrape + AI: ${ai?.summary ?? "lodging optimized"}`,
   };
 }
 
 export async function runTransportAgent(
   request: ParsedRequest,
   style: TravelStyle,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "transport",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   const days = request.duration ?? 5;
   const dest = getDestinationData(request.destination);
 
@@ -267,23 +311,37 @@ export async function runTransportAgent(
     });
   }
 
+  optimizedCost -= applyAiSavings("transport", baseCost, ai, opportunities);
+
   const transportSavings = baseCost - optimizedCost;
-  markDone(onProgress, "transport", `Transport rules applied — $${transportSavings} savings`, transportSavings);
+  markDone(onProgress, "transport", `Scrape + AI transport — $${transportSavings} savings`, transportSavings);
 
   return {
     agentId: "transport",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems,
     opportunities,
     savings: baseCost - optimizedCost,
-    message: "Transport cost from transit and parking rules",
+    message: `Web scrape + AI: ${ai?.summary ?? "transport optimized"}`,
   };
 }
 
 export async function runAttractionsAgent(
   request: ParsedRequest,
   style: TravelStyle,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "attractions",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   const dest = getDestinationData(request.destination);
   const days = request.duration ?? 5;
 
@@ -372,6 +430,8 @@ export async function runAttractionsAgent(
     }
   }
 
+  optimizedCost -= applyAiSavings("attractions", baseCost, ai, opportunities);
+
   lineItems.unshift({
     category: request.isPartyTrip ? "Activities & Events" : "Attractions",
     description: request.isPartyTrip
@@ -384,23 +444,35 @@ export async function runAttractionsAgent(
     agentId: "attractions",
   });
 
-  const attractionSavings = lineItems.reduce((s, i) => s + i.savings, 0);
-  markDone(onProgress, "attractions", "Activity costs from destination rules", attractionSavings);
+  const totalAttractionSavings = baseCost - optimizedCost;
+  markDone(onProgress, "attractions", `Scrape + AI activities — $${totalAttractionSavings} savings`, totalAttractionSavings);
 
   return {
     agentId: "attractions",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems,
     opportunities,
-    savings: attractionSavings,
-    message: "Activity pricing from rule-based tables",
+    savings: totalAttractionSavings,
+    message: `Web scrape + AI: ${ai?.summary ?? "activities optimized"}`,
   };
 }
 
 export async function runSavingsAgent(
   request: ParsedRequest,
   style: TravelStyle,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "savings",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   const opportunities: HiddenOpportunity[] = [];
   const lineItems: CostLineItem[] = [];
   let totalSavings = 0;
@@ -500,26 +572,42 @@ export async function runSavingsAgent(
     });
   }
 
-  markDone(onProgress, "savings", `$${totalSavings} in membership and promo rules`, totalSavings);
+  totalSavings += applyAiSavings("savings", promoBase || 200, ai, opportunities);
+
+  markDone(onProgress, "savings", `$${totalSavings} scrape + AI savings`, totalSavings);
 
   return {
     agentId: "savings",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems,
     opportunities,
     savings: totalSavings,
-    message: "Discount rules applied from membership tables",
+    message: `Web scrape + AI: ${ai?.summary ?? "discounts applied"}`,
   };
 }
 
 export async function runGroupAgent(
   request: ParsedRequest,
   style: TravelStyle,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "group",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   if (request.groupSize < 4) {
     markDone(onProgress, "group", "Group too small for bulk rates");
     return {
       agentId: "group",
+      agentScrape: scrape,
+      aiInsight: ai?.summary,
       lineItems: [],
       opportunities: [],
       savings: 0,
@@ -552,32 +640,46 @@ export async function runGroupAgent(
   });
 
   const totalSavings = groupSave + (style === "budget" ? sharedLodgingSave : 0);
-  markDone(onProgress, "group", `Group rules: $${totalSavings} savings`, totalSavings);
+  const aiExtra = applyAiSavings("group", totalSavings || 100, ai, opportunities);
+  const finalSavings = totalSavings + aiExtra;
+  markDone(onProgress, "group", `Scrape + AI group — $${finalSavings} savings`, finalSavings);
 
   return {
     agentId: "group",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems: [
       {
         category: "Group Savings",
         description: `Group of ${request.groupSize} optimized rates`,
-        baseCost: totalSavings,
+        baseCost: finalSavings,
         optimizedCost: 0,
-        savings: totalSavings,
-        savingsSource: "Group rates + shared lodging",
+        savings: finalSavings,
+        savingsSource: "Group rates + shared lodging + AI",
         agentId: "group",
       },
     ],
     opportunities,
-    savings: totalSavings,
-    message: `Group of ${request.groupSize}: $${totalSavings} in group savings`,
+    savings: finalSavings,
+    message: `Web scrape + AI: ${ai?.summary ?? "group optimized"}`,
   };
 }
 
 export async function runRoutingAgent(
   request: ParsedRequest,
   style: TravelStyle,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "routing",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   const dest = getDestinationData(request.destination);
   const days = request.duration ?? 5;
 
@@ -594,24 +696,28 @@ export async function runRoutingAgent(
     },
   ];
 
-  markDone(onProgress, "routing", "Route order from neighborhood rules", transitSave);
+  const aiExtra = applyAiSavings("routing", transitSave || 50, ai, opportunities);
+  const finalRoutingSavings = transitSave + aiExtra;
+  markDone(onProgress, "routing", `Scrape + AI routing — $${finalRoutingSavings} savings`, finalRoutingSavings);
 
   return {
     agentId: "routing",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems: [
       {
         category: "Routing",
         description: `${days}-day optimized itinerary for ${dest.attractions.length} sites`,
-        baseCost: transitSave,
+        baseCost: finalRoutingSavings,
         optimizedCost: 0,
-        savings: transitSave,
-        savingsSource: "Neighborhood clustering",
+        savings: finalRoutingSavings,
+        savingsSource: "Neighborhood clustering + AI",
         agentId: "routing",
       },
     ],
     opportunities,
-    savings: transitSave,
-    message: `${days}-day route optimized to minimize transit`,
+    savings: finalRoutingSavings,
+    message: `Web scrape + AI: ${ai?.summary ?? "route optimized"}`,
   };
 }
 
@@ -619,8 +725,18 @@ export async function runBudgetAgent(
   request: ParsedRequest,
   style: TravelStyle,
   onProgress: ProgressCallback,
-  allSavings: number
+  allSavings: number,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "budget",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   const tradeoffSave = Math.round(allSavings * 0.05);
   const opportunities: HiddenOpportunity[] = [];
 
@@ -647,12 +763,15 @@ export async function runBudgetAgent(
   });
 
   const mealSave = opportunities[opportunities.length - 1].savings;
-  const totalSavings = tradeoffSave + (style !== "luxury" ? mealSave : 0);
+  let totalSavings = tradeoffSave + (style !== "luxury" ? mealSave : 0);
+  totalSavings += applyAiSavings("budget", totalSavings || 100, ai, opportunities);
 
-  markDone(onProgress, "budget", `Budget rules: $${totalSavings} additional savings`, totalSavings);
+  markDone(onProgress, "budget", `Scrape + AI budget — $${totalSavings} savings`, totalSavings);
 
   return {
     agentId: "budget",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems: [
       {
         category: "Food & Dining",
@@ -666,7 +785,7 @@ export async function runBudgetAgent(
     ],
     opportunities,
     savings: totalSavings,
-    message: `Budget agent found $${totalSavings} in cross-category savings`,
+    message: `Web scrape + AI: ${ai?.summary ?? "budget reconciled"}`,
   };
 }
 
@@ -674,8 +793,18 @@ export async function runEfficiencyAgent(
   request: ParsedRequest,
   style: TravelStyle,
   onProgress: ProgressCallback,
-  priorResults: Map<AgentId, AgentResult>
+  priorResults: Map<AgentId, AgentResult>,
+  ctx?: AgentRunContext
 ): Promise<AgentResult> {
+  const { scrape, ai } = await prepareAgent(
+    "efficiency",
+    request,
+    style,
+    onProgress,
+    ctx,
+    { useAi: true }
+  );
+
   const { lineItems, audit } = auditAndRecalibratePlan(
     request,
     style,
@@ -686,7 +815,7 @@ export async function runEfficiencyAgent(
     onProgress,
     "efficiency",
     audit.feasible
-      ? `Verified total $${audit.verifiedTotal.toLocaleString()} (${audit.confidence} confidence)`
+      ? `Scrape + AI verified $${audit.verifiedTotal.toLocaleString()} (${audit.confidence})`
       : `Budget infeasible — minimum $${audit.minRealisticTotal.toLocaleString()}`
   );
 
@@ -728,15 +857,10 @@ export async function runEfficiencyAgent(
     });
   }
 
-  onProgress(
-    "efficiency",
-    95,
-    `${audit.correctionsApplied} correction(s) · ${audit.confidence} confidence`,
-    Math.max(0, audit.originalTotal - audit.verifiedTotal)
-  );
-
   return {
     agentId: "efficiency",
+    agentScrape: scrape,
+    aiInsight: ai?.summary,
     lineItems: audit.correctionsApplied > 0 || !audit.feasible
       ? [
           {
@@ -758,28 +882,4 @@ export async function runEfficiencyAgent(
   };
 }
 
-export function createInitialAgentStatuses(): AgentStatus[] {
-  const ids: AgentId[] = [
-    "flight", "lodging", "transport", "attractions",
-    "savings", "group", "routing", "budget", "efficiency",
-  ];
-  const names: Record<AgentId, string> = {
-    flight: "Flight Agent",
-    lodging: "Lodging Agent",
-    transport: "Transport Agent",
-    attractions: "Attractions Agent",
-    savings: "Savings Agent",
-    group: "Group Agent",
-    routing: "Routing Agent",
-    budget: "Budget Agent",
-    efficiency: "Cost Efficiency Agent",
-  };
-  return ids.map((id) => ({
-    id,
-    name: names[id],
-    status: "idle" as const,
-    progress: 0,
-    message: "Waiting…",
-    lastUpdate: Date.now(),
-  }));
-}
+export { createInitialAgentStatuses } from "./status";
