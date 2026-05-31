@@ -1,0 +1,8 @@
+entity: ${WANDB_ENTITY}
+project: ${WANDB_PROJECT}
+group: travelrook-planning
+job_type: travel-agent
+message_artifact: travelrook-message-bus
+message_file: messages.jsonl
+plan_artifact: travelrook-plan
+plan_file: travel_plan.json

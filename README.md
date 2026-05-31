@@ -1,98 +1,77 @@
-# TripForge — AI Travel Cost Optimizer
+# TravelRook W&B Multi-Agent Template
 
-A multi-agent AI platform that minimizes total trip cost by orchestrating 11 specialized agents in parallel. Enter a natural language request and the system immediately begins planning — no forms required.
+This repo is configured for your TravelRook agents:
 
-## Architecture
+- `flight_agent.py` estimates flight strategy and flight cost.
+- `lodging_agent.py` estimates hotel/lodging needs.
+- `transport_agent.py` estimates local transport.
+- `attractions_agent.py` builds an attraction mix.
+- `savings_agent.py` identifies cost-saving actions.
+- `group_agent.py` handles group coordination and cost-splitting rules.
+- `routing_agent.py` creates a route/day structure.
+- `budget_agent.py` combines category costs into a budget.
+- `cost_efficient_agent.py` produces the optimized final plan.
+- `coordinator_agent.py` publishes tasks to all agents.
+- `shared_bus.py` is the W&B artifact-backed message bus.
+- `travel_state.py` stores and versions the shared travel plan as a W&B Artifact.
 
-```
-User Query (NL) → Parser → Orchestrator → 11 Parallel Agents → 3 Plans (Budget/Balanced/Luxury)
-                                ↓
-                    Assumptions Checklist ← Real-time SSE Updates
-```
-
-### Specialized Agents
-
-| Agent | Responsibility |
-|-------|---------------|
-| **Flight Agent** | Cheapest routes, hidden-city tickets, fare timing |
-| **Lodging Agent** | Hotels, hostels, extended-stay discounts |
-| **Transport Agent** | Transit bundles, rideshare vs public transit |
-| **Parking Agent** | Garage discounts, park-and-ride strategies |
-| **Attractions Agent** | Free entry days, combo tickets, off-peak pricing |
-| **Discounts Agent** | Promo codes, seasonal deals, student discounts |
-| **Memberships Agent** | AAA, Costco, credit card travel perks |
-| **Local Passes Agent** | City passes, museum bundles, transit day passes |
-| **Group Agent** | Group rates, shared accommodation splits |
-| **Routing Agent** | Optimal day-by-day routing to minimize transit |
-| **Budget Agent** | Cross-category optimization and trade-off analysis |
-
-### Journey Map & Step-by-Step Itinerary
-
-- **Satellite map** with Esri World Imagery tiles and labeled overlays
-- **Animated route** showing stop-to-stop path with a pulsing traveler marker
-- **Play tour** mode auto-advances through stops every 2.5 seconds
-- **Day-by-day tabs** with weather forecast (temp, humidity, wind, UV, rain)
-- **Detailed stops** including gas stations, rest stops, attractions, food, lodging
-- **Travel segments** showing distance, duration, and transport mode between stops
-
-- **Natural language input** — describe your trip in plain English
-- **Smart assumptions** — missing info filled with reasonable defaults + interactive checklist
-- **Real-time agent visualization** — watch 11 agents work concurrently via SSE
-- **Three travel styles** — Budget, Balanced, and Luxury plans with appropriate cost scaling
-- **Transparent cost breakdown** — every dollar accounted for with savings sources
-- **Hidden opportunity discovery** — local passes, membership benefits, free-entry days, group rates
-- **Live re-optimization** — updating the assumptions checklist triggers selective agent reruns
-
-## Getting Started
+## Setup
 
 ```bash
-npm install
-npm run dev
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Edit `.env`:
 
-## Example Queries
-
-- "Trip to Paris for 2 people next month"
-- "Family of 4 to Tokyo for a week, budget under $5000"
-- "Weekend in Boston, solo, love museums and food"
-- "Group of 6 to Barcelona, we have AAA membership"
-
-## Tech Stack
-
-- **Next.js 14** (App Router)
-- **TypeScript**
-- **Tailwind CSS**
-- **Framer Motion** (agent animations)
-- **Server-Sent Events** (real-time agent streaming)
-
-## Project Structure
-
-```
-├── app/
-│   ├── page.tsx              # Main UI
-│   ├── api/optimize/route.ts # SSE streaming endpoint
-│   └── layout.tsx
-├── components/
-│   ├── ChatInput.tsx         # Natural language input
-│   ├── AgentDashboard.tsx    # Live agent status grid
-│   ├── PlanComparison.tsx    # Budget/Balanced/Luxury cards
-│   ├── CostBreakdown.tsx     # Transparent cost bars
-│   ├── OpportunitiesPanel.tsx # Hidden savings list
-│   └── AssumptionsChecklist.tsx # Interactive assumptions
-└── lib/
-    ├── types.ts              # Shared type definitions
-    ├── parser.ts             # NL query parser + assumptions
-    ├── orchestrator.ts       # Central agent orchestrator
-    └── agents/index.ts       # All 11 agent implementations
+```bash
+WANDB_ENTITY=your_wandb_username_or_team
+WANDB_PROJECT=travelrook-agents
+WANDB_API_KEY=your_api_key_here
 ```
 
-## Hackathon Demo Flow
+You may also run `wandb login` manually instead of storing an API key.
 
-1. Enter a natural language trip request
-2. Watch 11 agents activate in parallel on the dashboard
-3. Review the assumptions checklist — confirm, reject, or modify
-4. Compare Budget, Balanced, and Luxury plans side-by-side
-5. Explore cost breakdowns and hidden opportunity savings
-6. Modify an assumption → agents rerun → costs update in real time
+## Run the full local pipeline
+
+```bash
+bash scripts/run_all_local.sh
+```
+
+This creates separate W&B runs for the coordinator and each TravelRook agent. Each agent reads the latest travel-plan artifact, updates its section, logs metrics, and publishes a completion message.
+
+## Run with a custom trip request
+
+Pass either a JSON string or a JSON file path to the coordinator:
+
+```bash
+python agents/coordinator_agent.py --request-json '{"origin":"PHX","destination":"New York City","start_date":"2026-08-01","end_date":"2026-08-05","travelers":3}'
+```
+
+Then run the agents:
+
+```bash
+python agents/flight_agent.py
+python agents/lodging_agent.py
+python agents/transport_agent.py
+python agents/attractions_agent.py
+python agents/savings_agent.py
+python agents/group_agent.py
+python agents/routing_agent.py
+python agents/budget_agent.py
+python agents/cost_efficient_agent.py
+python read_final_plan.py
+```
+
+## How communication works
+
+1. The coordinator creates the initial `travelrook-plan` artifact and publishes task messages.
+2. Each agent downloads the latest plan artifact, updates its own section, logs metrics to W&B, and republishes the plan artifact.
+3. `shared_bus.py` logs JSONL messages as a W&B Artifact and W&B Table for traceability.
+4. `read_final_plan.py` downloads and prints the latest final plan.
+
+## Notes
+
+The artifact-backed message bus is simple and good for demos, traceability, and low-frequency handoffs. For production TravelRook orchestration, keep W&B for runs, metrics, artifacts, tables, and audit trails, and use a real queue/database such as Redis, Kafka, RabbitMQ, Postgres, or a cloud queue for high-throughput communication.
