@@ -31,13 +31,17 @@ function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** ~40ms per step — enough for SSE animation, not minutes of waiting */
 function agentPause() {
   return delay(40);
 }
 
-function randomBetween(_min: number, _max: number) {
-  return 0;
+function markDone(
+  onProgress: ProgressCallback,
+  agentId: AgentId,
+  message: string,
+  savings?: number
+) {
+  onProgress(agentId, 100, message, savings);
 }
 
 export async function runFlightAgent(
@@ -48,19 +52,21 @@ export async function runFlightAgent(
   const dest = getDestinationData(request.destination);
   const perPerson = request.groupSize;
   const styleMult = style === "budget" ? 0.7 : style === "luxury" ? 2.2 : 1.0;
+  const scrapedData = request.scrapedData;
 
-  onProgress("flight", 10, request.scrapedData?.distanceMiles
-    ? `Scraped ${request.scrapedData.distanceMiles} mi route — scanning fares…`
-    : "Scanning 847 flight combinations...");
-  await delay(randomBetween(400, 800));
+  onProgress(
+    "flight",
+    20,
+    scrapedData?.distanceMiles
+      ? `Using ${scrapedData.distanceMiles} mi scraped route — analyzing fares…`
+      : "Applying rule-based fare tables…"
+  );
+  await agentPause();
 
-  onProgress("flight", 35, "Checking hidden-city and multi-city routes...");
-  await delay(randomBetween(300, 600));
+  onProgress("flight", 55, "Checking departure-day and fare-class savings…");
+  await agentPause();
 
-  onProgress("flight", 60, "Analyzing Tuesday/Wednesday departure savings...");
-  await delay(randomBetween(300, 500));
-
-  const distanceMi = request.scrapedData?.distanceMiles ?? 800;
+  const distanceMi = scrapedData?.distanceMiles ?? 800;
   const baseCost = Math.round((150 + distanceMi * 0.14) * perPerson * styleMult);
   let optimizedCost = baseCost;
   const opportunities: HiddenOpportunity[] = [];
@@ -91,25 +97,30 @@ export async function runFlightAgent(
     optimizedCost -= hiddenCitySave;
   }
 
-  onProgress("flight", 90, `Found ${opportunities.length} flight optimizations`, baseCost - optimizedCost);
-  await delay(40);
+  const savings = baseCost - optimizedCost;
+  markDone(
+    onProgress,
+    "flight",
+    `Flight pricing complete — saved $${savings}`,
+    savings
+  );
 
   return {
     agentId: "flight",
     lineItems: [
       {
         category: "Flights",
-        description: `${request.origin ?? request.scrapedData?.originCity ?? "Home"} → ${dest.airport} (${perPerson} traveler${perPerson > 1 ? "s" : ""}, ${distanceMi} mi)`,
+        description: `${request.origin ?? scrapedData?.originCity ?? "Home"} → ${dest.airport} (${perPerson} traveler${perPerson > 1 ? "s" : ""}, ${distanceMi} mi)`,
         baseCost,
         optimizedCost,
-        savings: baseCost - optimizedCost,
+        savings,
         savingsSource: opportunities.filter((o) => o.applied).map((o) => o.title).join(", "),
         agentId: "flight",
       },
     ],
     opportunities,
-    savings: baseCost - optimizedCost,
-    message: `Optimized flights: saved $${baseCost - optimizedCost}`,
+    savings,
+    message: `Rule-based fare analysis: saved $${savings}`,
   };
 }
 
@@ -121,15 +132,6 @@ export async function runLodgingAgent(
   const dest = getDestinationData(request.destination);
   const nights = (request.duration ?? 5) - 1;
   const styleMult = style === "budget" ? 0.55 : style === "luxury" ? 2.5 : 1.0;
-
-  onProgress("lodging", 15, "Comparing 2,400+ accommodations...");
-  await delay(randomBetween(400, 700));
-
-  onProgress("lodging", 45, "Checking Airbnb vs hotel bundle deals...");
-  await delay(randomBetween(300, 600));
-
-  onProgress("lodging", 70, "Scanning last-minute and extended-stay discounts...");
-  await delay(randomBetween(300, 500));
 
   const nightlyRate = Math.round((dest.baseCost * 0.08) * styleMult);
   const rooms = Math.ceil(request.groupSize / 2);
@@ -163,7 +165,8 @@ export async function runLodgingAgent(
   });
   if (style !== "luxury") optimizedCost -= offPeakSave;
 
-  onProgress("lodging", 95, `Lodging optimized: $${baseCost - optimizedCost} saved`, baseCost - optimizedCost);
+  const lodgingSavings = baseCost - optimizedCost;
+  markDone(onProgress, "lodging", `Rule-based lodging estimate — $${lodgingSavings} savings`, lodgingSavings);
 
   const lodgingType = style === "budget" ? "Hostel/ budget hotel" : style === "luxury" ? "4-star boutique hotel" : "Mid-range hotel";
 
@@ -182,7 +185,7 @@ export async function runLodgingAgent(
     ],
     opportunities,
     savings: baseCost - optimizedCost,
-    message: `Found ${opportunities.length} lodging savings opportunities`,
+    message: `Lodging calculated from destination pricing tables`,
   };
 }
 
@@ -193,12 +196,6 @@ export async function runTransportAgent(
 ): Promise<AgentResult> {
   const days = request.duration ?? 5;
   const dest = getDestinationData(request.destination);
-
-  onProgress("transport", 15, "Analyzing ground transport + city transit passes...");
-  await delay(randomBetween(350, 650));
-
-  onProgress("transport", 40, "Comparing multi-day transit pass vs pay-per-ride...");
-  await delay(randomBetween(300, 500));
 
   const styleMult = style === "budget" ? 0.4 : style === "luxury" ? 2.0 : 1.0;
   let baseCost = Math.round((35 * days * request.groupSize + (request.hasCar ? 200 : 0)) * styleMult);
@@ -243,9 +240,6 @@ export async function runTransportAgent(
 
   // Absorbed: parking (ground transport domain)
   if (request.hasCar) {
-    onProgress("transport", 60, "Scanning parking garages and park-and-ride...");
-    await delay(randomBetween(300, 500));
-
     const parkingBase = Math.round(25 * days);
     let parkingOpt = parkingBase;
     const parkRideSave = Math.round(parkingBase * 0.45);
@@ -273,14 +267,15 @@ export async function runTransportAgent(
     });
   }
 
-  onProgress("transport", 90, "Ground transport + passes optimized", baseCost - optimizedCost);
+  const transportSavings = baseCost - optimizedCost;
+  markDone(onProgress, "transport", `Transport rules applied — $${transportSavings} savings`, transportSavings);
 
   return {
     agentId: "transport",
     lineItems,
     opportunities,
     savings: baseCost - optimizedCost,
-    message: "Ground transport, city passes, and parking unified",
+    message: "Transport cost from transit and parking rules",
   };
 }
 
@@ -291,18 +286,6 @@ export async function runAttractionsAgent(
 ): Promise<AgentResult> {
   const dest = getDestinationData(request.destination);
   const days = request.duration ?? 5;
-
-  onProgress(
-    "attractions",
-    15,
-    request.isPartyTrip
-      ? `Planning ${request.partyType ?? "celebration"} activities + nightlife…`
-      : "Mapping attractions, events, and free entry days…"
-  );
-  await delay(randomBetween(350, 600));
-
-  onProgress("attractions", 45, "Checking combo tickets, city pass entry, and off-peak pricing...");
-  await delay(randomBetween(300, 500));
 
   const styleMult = style === "budget" ? 0.5 : style === "luxury" ? 2.5 : 1.0;
   let baseCost = Math.round(45 * days * request.groupSize * styleMult);
@@ -362,9 +345,6 @@ export async function runAttractionsAgent(
 
   // Absorbed: party / event planning
   if (request.isPartyTrip) {
-    onProgress("attractions", 65, "Scouting venues, nightlife, and celebration packages...");
-    await delay(randomBetween(300, 500));
-
     const partySave = Math.round(120 * request.groupSize * (style === "budget" ? 0.5 : 1));
     opportunities.push({
       id: "attractions-party-bundle",
@@ -404,16 +384,15 @@ export async function runAttractionsAgent(
     agentId: "attractions",
   });
 
-  onProgress("attractions", 90, `${opportunities.length} activity savings found`, baseCost - optimizedCost);
+  const attractionSavings = lineItems.reduce((s, i) => s + i.savings, 0);
+  markDone(onProgress, "attractions", "Activity costs from destination rules", attractionSavings);
 
   return {
     agentId: "attractions",
     lineItems,
     opportunities,
-    savings: lineItems.reduce((s, i) => s + i.savings, 0),
-    message: request.isPartyTrip
-      ? `Events, nightlife, and attractions unified for ${request.partyType ?? "your celebration"}`
-      : "Activities, events, and city pass entry unified",
+    savings: attractionSavings,
+    message: "Activity pricing from rule-based tables",
   };
 }
 
@@ -422,12 +401,6 @@ export async function runSavingsAgent(
   style: TravelStyle,
   onProgress: ProgressCallback
 ): Promise<AgentResult> {
-  onProgress("savings", 20, "Scanning promo codes, seasonal deals, and pricing credentials...");
-  await delay(randomBetween(350, 550));
-
-  onProgress("savings", 50, "Matching loyalty cards, memberships, and stackable discounts...");
-  await delay(randomBetween(300, 500));
-
   const opportunities: HiddenOpportunity[] = [];
   const lineItems: CostLineItem[] = [];
   let totalSavings = 0;
@@ -527,14 +500,14 @@ export async function runSavingsAgent(
     });
   }
 
-  onProgress("savings", 90, `$${totalSavings} in discounts + membership savings`, totalSavings);
+  markDone(onProgress, "savings", `$${totalSavings} in membership and promo rules`, totalSavings);
 
   return {
     agentId: "savings",
     lineItems,
     opportunities,
     savings: totalSavings,
-    message: `${opportunities.filter((o) => o.applied).length} pricing credentials and discounts applied`,
+    message: "Discount rules applied from membership tables",
   };
 }
 
@@ -543,11 +516,8 @@ export async function runGroupAgent(
   style: TravelStyle,
   onProgress: ProgressCallback
 ): Promise<AgentResult> {
-  onProgress("group", 25, "Analyzing group rate eligibility...");
-  await delay(randomBetween(300, 500));
-
   if (request.groupSize < 4) {
-    onProgress("group", 100, "Group too small for bulk rates");
+    markDone(onProgress, "group", "Group too small for bulk rates");
     return {
       agentId: "group",
       lineItems: [],
@@ -556,9 +526,6 @@ export async function runGroupAgent(
       message: "No group discounts available (< 4 travelers)",
     };
   }
-
-  onProgress("group", 60, "Negotiating group dining and activity rates...");
-  await delay(randomBetween(300, 500));
 
   const groupSave = Math.round(35 * request.groupSize);
   const opportunities: HiddenOpportunity[] = [
@@ -585,7 +552,7 @@ export async function runGroupAgent(
   });
 
   const totalSavings = groupSave + (style === "budget" ? sharedLodgingSave : 0);
-  onProgress("group", 90, `Group savings: $${totalSavings}`, totalSavings);
+  markDone(onProgress, "group", `Group rules: $${totalSavings} savings`, totalSavings);
 
   return {
     agentId: "group",
@@ -614,15 +581,6 @@ export async function runRoutingAgent(
   const dest = getDestinationData(request.destination);
   const days = request.duration ?? 5;
 
-  onProgress("routing", 20, "Building optimal daily routes...");
-  await delay(randomBetween(350, 550));
-
-  onProgress("routing", 55, "Clustering attractions by neighborhood...");
-  await delay(randomBetween(300, 500));
-
-  onProgress("routing", 80, "Minimizing backtracking and transit hops...");
-  await delay(randomBetween(200, 400));
-
   const transitSave = Math.round(15 * days);
   const opportunities: HiddenOpportunity[] = [
     {
@@ -636,7 +594,7 @@ export async function runRoutingAgent(
     },
   ];
 
-  onProgress("routing", 95, "Route optimized", transitSave);
+  markDone(onProgress, "routing", "Route order from neighborhood rules", transitSave);
 
   return {
     agentId: "routing",
@@ -663,12 +621,6 @@ export async function runBudgetAgent(
   onProgress: ProgressCallback,
   allSavings: number
 ): Promise<AgentResult> {
-  onProgress("budget", 30, "Cross-referencing all agent findings...");
-  await delay(randomBetween(350, 550));
-
-  onProgress("budget", 60, "Identifying trade-off opportunities...");
-  await delay(randomBetween(300, 500));
-
   const tradeoffSave = Math.round(allSavings * 0.05);
   const opportunities: HiddenOpportunity[] = [];
 
@@ -697,7 +649,7 @@ export async function runBudgetAgent(
   const mealSave = opportunities[opportunities.length - 1].savings;
   const totalSavings = tradeoffSave + (style !== "luxury" ? mealSave : 0);
 
-  onProgress("budget", 90, `Budget analysis complete: $${totalSavings} additional savings`, totalSavings);
+  markDone(onProgress, "budget", `Budget rules: $${totalSavings} additional savings`, totalSavings);
 
   return {
     agentId: "budget",
@@ -724,26 +676,19 @@ export async function runEfficiencyAgent(
   onProgress: ProgressCallback,
   priorResults: Map<AgentId, AgentResult>
 ): Promise<AgentResult> {
-  onProgress("efficiency", 15, "Cross-checking estimates against scraped route data…");
-  await delay(randomBetween(350, 550));
-
-  onProgress("efficiency", 45, "Applying destination cost floors and savings caps…");
-  await delay(randomBetween(300, 500));
-
   const { lineItems, audit } = auditAndRecalibratePlan(
     request,
     style,
     priorResults
   );
 
-  onProgress(
+  markDone(
+    onProgress,
     "efficiency",
-    75,
     audit.feasible
       ? `Verified total $${audit.verifiedTotal.toLocaleString()} (${audit.confidence} confidence)`
       : `Budget infeasible — minimum $${audit.minRealisticTotal.toLocaleString()}`
   );
-  await delay(randomBetween(200, 400));
 
   const opportunities: HiddenOpportunity[] = [];
 
@@ -834,7 +779,7 @@ export function createInitialAgentStatuses(): AgentStatus[] {
     name: names[id],
     status: "idle" as const,
     progress: 0,
-    message: "Waiting to start...",
+    message: "Waiting…",
     lastUpdate: Date.now(),
   }));
 }

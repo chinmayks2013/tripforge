@@ -8,8 +8,18 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "var(--font-sans)", "system-ui", "sans-serif"],
+      },
+      boxShadow: {
+        rook: "0 4px 32px rgba(201, 162, 77, 0.18)",
+        "rook-lg": "0 8px 48px rgba(201, 162, 77, 0.22)",
+        glow: "0 0 60px rgba(201, 162, 77, 0.12)",
+      },
       colors: {
         rook: {
+          200: "#f5e6b8",
           300: "#e8c882",
           400: "#d4a853",
           500: "#b8923f",
@@ -46,12 +56,17 @@ const config: Config = {
       },
       animation: {
         "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        shimmer: "shimmer 2s linear infinite",
+        shimmer: "shimmer 2.5s linear infinite",
+        float: "float 6s ease-in-out infinite",
       },
       keyframes: {
         shimmer: {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
+        },
+        float: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-8px)" },
         },
       },
     },

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AgentStatus, AGENT_META, AgentId } from "@/lib/types";
 import clsx from "clsx";
@@ -22,6 +23,8 @@ const COLOR_MAP: Record<string, string> = {
 };
 
 export default function AgentDashboard({ agents, isActive }: AgentDashboardProps) {
+  const [selectedId, setSelectedId] = useState<AgentId | null>(null);
+
   if (!isActive) return null;
 
   const activeCount = agents.filter(
@@ -29,18 +32,55 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
   ).length;
   const completeCount = agents.filter((a) => a.status === "complete").length;
   const totalSavings = agents.reduce((s, a) => s + (a.savingsFound ?? 0), 0);
+  const selected = selectedId ? agents.find((a) => a.id === selectedId) : null;
+  const selectedMeta = selectedId ? AGENT_META[selectedId] : null;
 
   return (
-    <div className="glass-elevated rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-5">
+    <div className="space-y-3">
+      <AnimatePresence>
+        {selected && selectedMeta && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="section-shell p-4 border-rook-400/20 overflow-hidden"
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">{selectedMeta.icon}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white">{selectedMeta.name}</p>
+                <p className="text-xs text-white/45 mt-0.5">{selectedMeta.description}</p>
+                {selected.assignedTask && (
+                  <p className="text-xs text-rook-300/80 mt-2">
+                    Task: {selected.assignedTask}
+                  </p>
+                )}
+                {selected.taskObjective && (
+                  <p className="text-[11px] text-white/35 mt-1">{selected.taskObjective}</p>
+                )}
+                {selected.message && (
+                  <p className="text-[11px] text-white/50 mt-2 italic">{selected.message}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="text-xs text-white/30 hover:text-white/60"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+    <div className="section-shell p-5 sm:p-6">
+      <div className="flex items-center justify-between mb-5 pb-4 border-b border-white/[0.06]">
         <div>
-          <h3 className="text-sm font-semibold text-white/90 tracking-wide">
-            Agent Orchestration
-          </h3>
-          <p className="text-xs text-white/45 mt-0.5">
+          <p className="text-xs text-white/40">
             {activeCount > 0
-              ? `${activeCount} agents working in parallel`
-              : `${completeCount}/${agents.length} agents complete`}
+              ? "1 agent running"
+              : `${completeCount} of ${agents.length} complete`}
           </p>
         </div>
         {totalSavings > 0 && (
@@ -69,15 +109,20 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
             const isComplete = agent.status === "complete";
 
             return (
-              <motion.div
+              <motion.button
+                type="button"
                 key={agent.id}
+                onClick={() =>
+                  setSelectedId(selectedId === agent.id ? null : (agent.id as AgentId))
+                }
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={clsx(
-                  "relative rounded-xl p-3 border transition-all duration-300 hover:border-white/15",
+                  "relative rounded-xl p-3 border transition-all duration-300 text-left w-full",
+                  selectedId === agent.id && "ring-1 ring-rook-400/40",
                   isWorking && "border-rook-400/25 bg-rook-500/5",
                   isComplete && "border-emerald-500/25 bg-emerald-500/5",
-                  !isWorking && !isComplete && "border-white/5 bg-white/[0.02]"
+                  !isWorking && !isComplete && "border-white/5 bg-white/[0.02] hover:border-white/12"
                 )}
               >
                 {isWorking && (
@@ -131,11 +176,12 @@ export default function AgentDashboard({ agents, isActive }: AgentDashboardProps
                     </div>
                   )}
                 </div>
-              </motion.div>
+              </motion.button>
             );
           })}
         </AnimatePresence>
       </div>
+    </div>
     </div>
   );
 }

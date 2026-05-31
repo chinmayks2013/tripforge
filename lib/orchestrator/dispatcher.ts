@@ -15,7 +15,6 @@ import { AgentEvent, AgentId, ParsedRequest, TravelStyle } from "../types";
 import {
   AgentTask,
   buildAgentTaskPlan,
-  groupTasksByWave,
 } from "./agent-tasks";
 
 export type TaskEventEmitter = (event: AgentEvent) => void;
@@ -49,11 +48,12 @@ const AGENT_RUNNERS: Record<AgentId, AgentRunner> = {
 export interface DispatchResult {
   tasks: AgentTask[];
   results: Map<AgentId, AgentResult>;
+  request: ParsedRequest;
 }
 
 /**
- * Assigns contextual tasks to each AI agent and runs them in dependency waves.
- * Wave 1: specialists · Wave 2: budget · Wave 3: cost efficiency verification
+ * Runs agents one at a time in priority order.
+ * Live web scraping happens before this pipeline (see TravelOrchestrator).
  */
 export async function dispatchAgentTasks(
   request: ParsedRequest,
@@ -71,16 +71,18 @@ export async function dispatchAgentTasks(
     : (event) => {
         if (event.type === "task_complete" || event.type === "agent_complete") return;
       };
+
   const tasks = buildAgentTaskPlan(request, style, filterAgents);
-  const waves = groupTasksByWave(tasks);
+  const orderedTasks = [...tasks].sort((a, b) => a.priority - b.priority);
   const results = new Map<AgentId, AgentResult>();
+  let workingRequest = request;
 
   emitEvent({
     type: "task_plan_ready",
     data: {
       style,
       taskCount: tasks.length,
-      waveCount: waves.size,
+      waveCount: orderedTasks.length,
       tasks: tasks.map(({ id, agentId, wave, title, objective, dependencies }) => ({
         id,
         agentId,
@@ -93,103 +95,94 @@ export async function dispatchAgentTasks(
     timestamp: Date.now(),
   });
 
-  for (const [waveNum, waveTasks] of Array.from(waves.entries())) {
+  for (const task of orderedTasks) {
     emitEvent({
       type: "task_wave_start",
       data: {
-        wave: waveNum,
-        agents: waveTasks.map((t) => t.agentId),
+        wave: task.wave,
+        agents: [task.agentId],
         style,
       },
       timestamp: Date.now(),
     });
+
+    task.status = "assigned";
+    emitEvent({
+      type: "task_assigned",
+      agentId: task.agentId,
+      data: {
+        taskId: task.id,
+        title: task.title,
+        objective: task.objective,
+        wave: task.wave,
+        dependencies: task.dependencies,
+        context: task.context,
+        style,
+      },
+      timestamp: Date.now(),
+    });
+
+    emitEvent({
+      type: "agent_start",
+      agentId: task.agentId,
+      data: { style, task: task.title, objective: task.objective },
+      timestamp: Date.now(),
+    });
+
+    task.status = "running";
 
     const partialSavings = Array.from(results.values()).reduce(
       (s, r) => s + r.savings,
       0
     );
 
-    await Promise.all(
-      waveTasks.map(async (task) => {
-        task.status = "assigned";
-        emitEvent({
-          type: "task_assigned",
-          agentId: task.agentId,
-          data: {
-            taskId: task.id,
-            title: task.title,
-            objective: task.objective,
-            wave: task.wave,
-            dependencies: task.dependencies,
-            context: task.context,
-            style,
-          },
-          timestamp: Date.now(),
-        });
+    const runner = AGENT_RUNNERS[task.agentId];
+    const run = () =>
+      runner(workingRequest, style, progress, {
+        partialSavings: task.agentId === "budget" ? partialSavings : undefined,
+        priorResults:
+          task.agentId === "efficiency" ? new Map(results) : undefined,
+      });
 
-        emitEvent({
-          type: "agent_start",
-          agentId: task.agentId,
-          data: { style, task: task.title, objective: task.objective },
-          timestamp: Date.now(),
-        });
+    const result = await Promise.race([
+      run(),
+      new Promise<AgentResult>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`${task.agentId} agent timed out`)),
+          15_000
+        )
+      ),
+    ]);
 
-        task.status = "running";
+    if (live) {
+      progress(task.agentId, 100, result.message, result.savings);
+    }
 
-        const runner = AGENT_RUNNERS[task.agentId];
-        const run = () =>
-          runner(request, style, progress, {
-            partialSavings: task.agentId === "budget" ? partialSavings : undefined,
-            priorResults:
-              task.agentId === "efficiency" ? new Map(results) : undefined,
-          });
+    results.set(task.agentId, result);
+    task.status = "complete";
 
-        const result = await Promise.race([
-          run(),
-          new Promise<AgentResult>((_, reject) =>
-            setTimeout(
-              () => reject(new Error(`${task.agentId} agent timed out`)),
-              30_000
-            )
-          ),
-        ]);
+    emitEvent({
+      type: "task_complete",
+      agentId: task.agentId,
+      data: {
+        taskId: task.id,
+        title: task.title,
+        savings: result.savings,
+        message: result.message,
+        style,
+        ...(result.costAudit ? { costAudit: result.costAudit } : {}),
+      },
+      timestamp: Date.now(),
+    });
 
-        if (live) {
-          progress(task.agentId, 100, result.message, result.savings);
-        }
-
-        results.set(task.agentId, result);
-        task.status = "complete";
-
-        emitEvent({
-          type: "task_complete",
-          agentId: task.agentId,
-          data: {
-            taskId: task.id,
-            title: task.title,
-            savings: result.savings,
-            message: result.message,
-            style,
-            ...(result.costAudit ? { costAudit: result.costAudit } : {}),
-          },
-          timestamp: Date.now(),
-        });
-      })
-    );
-
-    const waveSavings = waveTasks.reduce(
-      (s, t) => s + (results.get(t.agentId)?.savings ?? 0),
-      0
-    );
     options?.onWaveComplete?.(
-      waveNum,
-      waveTasks.map((t) => t.agentId),
-      waveSavings
+      task.wave,
+      [task.agentId],
+      result.savings
     );
 
-    // Yield so SSE chunks flush before the next wave
     await new Promise((r) => setTimeout(r, 0));
   }
 
-  return { tasks, results };
+  return { tasks, results, request: workingRequest };
 }

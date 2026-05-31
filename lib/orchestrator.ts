@@ -77,11 +77,11 @@ export class TravelOrchestrator {
   async optimize(request: ParsedRequest): Promise<OptimizationResult> {
     this.emit({
       type: "orchestrator_start",
-      data: { message: "Researching live data, then coordinating 9 agents…" },
+      data: { message: "Scraping live route data, then running agents sequentially…" },
       timestamp: Date.now(),
     });
 
-    let enriched = await this.coordinator.scrapeAndEnrich(
+    const enriched = await this.coordinator.scrapeAndEnrich(
       request,
       scrapeTripData,
       SCRAPE_TIMEOUT_MS
@@ -101,12 +101,6 @@ export class TravelOrchestrator {
       });
     }
 
-    this.emit({
-      type: "orchestrator_start",
-      data: { message: "Coordinator dispatching agents in 3 waves…" },
-      timestamp: Date.now(),
-    });
-
     const assumptions = generateAssumptions(enriched);
     this.emit({
       type: "assumptions_ready",
@@ -114,7 +108,12 @@ export class TravelOrchestrator {
       timestamp: Date.now(),
     });
 
-    const balancedPlan = await this.runAgentTaskPlan(enriched, "balanced", undefined, true);
+    const { plan: balancedPlan, request: enrichedRequest } = await this.runAgentTaskPlan(
+      enriched,
+      "balanced",
+      undefined,
+      true
+    );
     this.emit({
       type: "plan_ready",
       data: { plan: balancedPlan },
@@ -136,30 +135,30 @@ export class TravelOrchestrator {
     });
 
     const plans = [budgetPlan, balancedPlan, luxuryPlan];
-    const route = buildTripRoute(enriched);
+    const route = buildTripRoute(enrichedRequest);
     const totalSavings = plans.reduce((sum, p) => sum + p.totalSavings, 0);
 
     this.emit({
       type: "orchestrator_complete",
       data: {
-        message: "Coordinator complete — 3 optimized plans ready.",
+        message: "Pipeline complete — 3 optimized plans ready.",
         totalSavings,
       },
       timestamp: Date.now(),
     });
 
     const result: OptimizationResult = {
-      request: enriched,
+      request: enrichedRequest,
       assumptions,
       plans,
       itinerary: route.days,
       route,
       agentStatuses: [...this.agentStatuses],
       totalSavingsAcrossAgents: totalSavings,
-      scrapedData: enriched.scrapedData,
+      scrapedData: enrichedRequest.scrapedData,
     };
 
-    this.coordinator.logRunComplete(enriched, result);
+    await this.coordinator.logRunComplete(enrichedRequest, result);
     return result;
   }
 
@@ -169,7 +168,7 @@ export class TravelOrchestrator {
   ): Promise<Partial<OptimizationResult>> {
     this.agentStatuses = createInitialAgentStatuses();
 
-    const balancedPlan = await this.runAgentTaskPlan(
+    const { plan: balancedPlan, request: enrichedRequest } = await this.runAgentTaskPlan(
       request,
       "balanced",
       agentIds,
@@ -189,9 +188,9 @@ export class TravelOrchestrator {
       });
     }
 
-    const route = buildTripRoute(request);
+    const route = buildTripRoute(enrichedRequest);
     const partial: Partial<OptimizationResult> = {
-      request,
+      request: enrichedRequest,
       plans,
       itinerary: route.days,
       route,
@@ -200,8 +199,8 @@ export class TravelOrchestrator {
     };
 
     if (partial.plans && partial.totalSavingsAcrossAgents != null) {
-      this.coordinator.logRunComplete(request, {
-        request,
+      await this.coordinator.logRunComplete(enrichedRequest, {
+        request: enrichedRequest,
         assumptions: [],
         plans: partial.plans,
         itinerary: partial.itinerary ?? [],
@@ -219,7 +218,7 @@ export class TravelOrchestrator {
     style: TravelStyle,
     filterAgents?: AgentId[],
     liveUpdates = true
-  ): Promise<TravelPlan> {
+  ): Promise<{ plan: TravelPlan; request: ParsedRequest }> {
     const onProgress = liveUpdates ? this.makeProgressCallback() : () => {};
 
     const taskAssignHandler = (event: AgentEvent) => {
@@ -239,7 +238,7 @@ export class TravelOrchestrator {
       if (liveUpdates) this.emit(event);
     };
 
-    const { results } = await this.coordinator.dispatchAgents(
+    const { results, request: enrichedRequest } = await this.coordinator.dispatchAgents(
       request,
       style,
       onProgress,
@@ -262,7 +261,7 @@ export class TravelOrchestrator {
         ...agentResults.flatMap((r) => r.opportunities),
         ...(efficiencyResult?.opportunities ?? []),
       ],
-      request
+      enrichedRequest
     );
 
     const costAudit = efficiencyResult?.costAudit;
@@ -280,6 +279,7 @@ export class TravelOrchestrator {
       .map((o) => o.title);
 
     return {
+      plan: {
       id: `${style}-${Date.now()}`,
       style,
       title: STYLE_LABELS[style],
@@ -290,10 +290,12 @@ export class TravelOrchestrator {
       lineItems,
       opportunities,
       summary: costAudit?.feasible === false
-        ? `${STYLE_LABELS[style]} plan for ${request.destination}: budget may be too low (min ~$${costAudit.minRealisticTotal.toLocaleString()}).`
-        : `${STYLE_LABELS[style]} plan for ${request.destination}: ${request.duration} days, ${request.groupSize} travelers. ${opportunities.filter((o) => o.applied).length} hidden savings applied.`,
+        ? `${STYLE_LABELS[style]} plan for ${enrichedRequest.destination}: budget may be too low (min ~$${costAudit.minRealisticTotal.toLocaleString()}).`
+        : `${STYLE_LABELS[style]} plan for ${enrichedRequest.destination}: ${enrichedRequest.duration} days, ${enrichedRequest.groupSize} travelers. ${opportunities.filter((o) => o.applied).length} savings applied.`,
       highlights,
       costAudit,
+      },
+      request: enrichedRequest,
     };
   }
 }

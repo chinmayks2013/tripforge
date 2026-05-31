@@ -14,13 +14,19 @@ export interface AgentTask {
   status: TaskStatus;
 }
 
-/** Budget agent waits for wave-1 specialists; efficiency verifies everything after budget. */
+/** Sequential pipeline — each agent runs after the previous completes. */
 export const AGENT_DEPENDENCIES: Partial<Record<AgentId, AgentId[]>> = {
+  lodging: ["flight"],
+  transport: ["flight", "lodging"],
+  attractions: ["flight", "lodging", "transport"],
+  savings: ["flight", "lodging", "transport", "attractions"],
+  group: ["flight", "lodging", "transport", "attractions", "savings"],
+  routing: ["flight", "lodging", "transport", "attractions", "savings", "group"],
   budget: ["flight", "lodging", "transport", "attractions", "savings", "group", "routing"],
   efficiency: ["flight", "lodging", "transport", "attractions", "savings", "group", "routing", "budget"],
 };
 
-const WAVE_1: AgentId[] = [
+const SEQUENTIAL_ORDER: AgentId[] = [
   "flight",
   "lodging",
   "transport",
@@ -28,6 +34,8 @@ const WAVE_1: AgentId[] = [
   "savings",
   "group",
   "routing",
+  "budget",
+  "efficiency",
 ];
 
 function tripContext(request: ParsedRequest) {
@@ -58,94 +66,84 @@ function taskTemplates(
   const styleLabel =
     style === "budget" ? "lowest cost" : style === "luxury" ? "premium" : "best value";
 
-  return [
+  const templates: TaskTemplate[] = [
     {
       agentId: "flight",
       wave: 1,
       priority: 1,
-      title: "Optimize airfare",
-      objective: `Find ${styleLabel} flights from ${ctx.origin} to ${ctx.dest} for ${ctx.travelers} traveler(s)${
-        ctx.distance ? ` (~${ctx.distance} mi)` : ""
-      }`,
+      title: "Calculate flight costs",
+      objective: `Rule-based fare analysis: ${ctx.origin} → ${ctx.dest} for ${ctx.travelers} traveler(s)`,
       dependencies: [],
       context: {
         origin: ctx.origin,
         destination: ctx.dest,
         travelers: ctx.travelers,
         style,
-        ...(ctx.distance != null ? { distanceMiles: ctx.distance } : {}),
       },
     },
     {
       agentId: "lodging",
-      wave: 1,
+      wave: 2,
       priority: 2,
-      title: "Compare stays",
-      objective: `Search ${ctx.days - 1} nights in ${ctx.dest} — hotels, hostels, and availability for ${ctx.travelers} guest(s)`,
-      dependencies: [],
+      title: "Calculate lodging",
+      objective: `${ctx.days - 1} nights in ${ctx.dest} — rule-based pricing tables`,
+      dependencies: AGENT_DEPENDENCIES.lodging ?? [],
       context: { destination: ctx.dest, nights: ctx.days - 1, travelers: ctx.travelers, style },
     },
     {
       agentId: "transport",
-      wave: 1,
+      wave: 3,
       priority: 3,
-      title: "Ground transport + city passes",
+      title: "Calculate transport",
       objective: request.hasCar
-        ? `Rental, parking, park-and-ride, and transit passes for ${ctx.days} days in ${ctx.dest}`
-        : `Transit passes, city cards, and rideshare mix for ${ctx.dest} (${ctx.days} days)`,
-      dependencies: [],
+        ? `Rental, parking, and transit rules for ${ctx.days} days`
+        : `Transit passes and city cards for ${ctx.dest}`,
+      dependencies: AGENT_DEPENDENCIES.transport ?? [],
       context: { destination: ctx.dest, days: ctx.days, hasCar: request.hasCar, style },
     },
     {
       agentId: "attractions",
-      wave: 1,
+      wave: 4,
       priority: 4,
-      title: request.isPartyTrip ? "Plan activities & events" : "Curate activities",
-      objective: request.isPartyTrip
-        ? `Plan ${request.partyType ?? "celebration"} — venues, nightlife, city pass entry in ${ctx.dest}`
-        : `Build ${ctx.days}-day activity list — attractions, events, nightlife${
-            request.interests.length ? ` (${request.interests.join(", ")})` : ""
-          }`,
-      dependencies: [],
+      title: "Calculate activities",
+      objective: `${ctx.days}-day activity costs from destination tables`,
+      dependencies: AGENT_DEPENDENCIES.attractions ?? [],
       context: {
         destination: ctx.dest,
         days: ctx.days,
         travelers: ctx.travelers,
         style,
         isPartyTrip: !!request.isPartyTrip,
-        ...(request.partyType ? { partyType: request.partyType } : {}),
       },
     },
     {
       agentId: "savings",
-      wave: 1,
+      wave: 5,
       priority: 5,
-      title: "Apply pricing credentials",
-      objective: `Stack promo codes, seasonal deals, and membership perks (known: ${ctx.memberships})`,
-      dependencies: [],
+      title: "Apply discount rules",
+      objective: `Membership and promo rules (known: ${ctx.memberships})`,
+      dependencies: AGENT_DEPENDENCIES.savings ?? [],
       context: { destination: ctx.dest, memberships: ctx.memberships, style },
     },
     {
       agentId: "group",
-      wave: 1,
+      wave: 6,
       priority: 6,
-      title: "Optimize group logistics",
+      title: "Apply group rules",
       objective:
         ctx.travelers >= 4
-          ? `Group rates, cost splitting, and role assignment for ${ctx.travelers} travelers`
-          : `Duo/family bundles and split-cost options for ${ctx.travelers} traveler(s)`,
-      dependencies: [],
+          ? `Group rate tables for ${ctx.travelers} travelers`
+          : `Solo/duo pricing — no group bulk rates`,
+      dependencies: AGENT_DEPENDENCIES.group ?? [],
       context: { destination: ctx.dest, travelers: ctx.travelers, style },
     },
     {
       agentId: "routing",
-      wave: 1,
+      wave: 7,
       priority: 7,
-      title: "Optimize daily routes",
-      objective: `Day-order map sequencing in ${ctx.dest} — minimize backtracking${
-        ctx.distance ? ` (origin ${ctx.distance} mi away)` : ""
-      }`,
-      dependencies: [],
+      title: "Sequence daily routes",
+      objective: `Neighborhood clustering for ${ctx.days} days in ${ctx.dest}`,
+      dependencies: AGENT_DEPENDENCIES.routing ?? [],
       context: {
         destination: ctx.dest,
         origin: ctx.origin,
@@ -156,12 +154,12 @@ function taskTemplates(
     },
     {
       agentId: "budget",
-      wave: 2,
+      wave: 8,
       priority: 8,
-      title: "Cross-cutting budget sync",
+      title: "Budget reconciliation",
       objective: ctx.budget
-        ? `Enforce $${ctx.budget} cap with trade-offs across all agents`
-        : `Maximize savings across all categories for ${styleLabel} plan`,
+        ? `Enforce $${ctx.budget} cap across all categories`
+        : `Cross-category meal and trade-off rules for ${styleLabel} plan`,
       dependencies: AGENT_DEPENDENCIES.budget ?? [],
       context: {
         destination: ctx.dest,
@@ -171,12 +169,12 @@ function taskTemplates(
     },
     {
       agentId: "efficiency",
-      wave: 3,
+      wave: 9,
       priority: 9,
       title: "Verify cost accuracy",
       objective: ctx.distance
-        ? `Recalibrate all estimates using ${ctx.distance} mi scraped route + destination cost floors`
-        : `Apply realistic cost floors and cap inflated savings for ${ctx.dest}`,
+        ? `Validate totals against ${ctx.distance} mi scraped route + cost floors`
+        : `Apply destination cost floors and savings caps`,
       dependencies: AGENT_DEPENDENCIES.efficiency ?? [],
       context: {
         destination: ctx.dest,
@@ -186,9 +184,10 @@ function taskTemplates(
       },
     },
   ];
+
+  return templates;
 }
 
-/** Build the full task plan for a trip optimization run. */
 export function buildAgentTaskPlan(
   request: ParsedRequest,
   style: TravelStyle,
@@ -206,16 +205,12 @@ export function buildAgentTaskPlan(
   }));
 }
 
-/** Group tasks into execution waves (parallel within each wave). */
 export function groupTasksByWave(tasks: AgentTask[]): Map<number, AgentTask[]> {
   const waves = new Map<number, AgentTask[]>();
   for (const task of tasks) {
     const list = waves.get(task.wave) ?? [];
     list.push(task);
     waves.set(task.wave, list);
-  }
-  for (const list of Array.from(waves.values())) {
-    list.sort((a, b) => a.priority - b.priority);
   }
   return new Map(
     Array.from(waves.entries()).sort(([a], [b]) => a - b)
@@ -226,4 +221,4 @@ export function getWaveAgentIds(wave: AgentTask[]): AgentId[] {
   return wave.map((t) => t.agentId);
 }
 
-export { WAVE_1 };
+export { SEQUENTIAL_ORDER };

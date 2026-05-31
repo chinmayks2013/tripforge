@@ -16,7 +16,7 @@ const STEPS = [
   { id: "plan", label: "Describe", icon: Search },
   { id: "research", label: "Research", icon: Globe },
   { id: "optimize", label: "Optimize", icon: Cpu },
-  { id: "results", label: "Your Trip", icon: MapPinned },
+  { id: "results", label: "Results", icon: MapPinned },
 ] as const;
 
 function activeIndex(phase: Phase, isScraping: boolean): number {
@@ -33,14 +33,17 @@ export default function PhaseStepper({
   const current = activeIndex(phase, isScraping);
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div className="w-full max-w-xl mx-auto section-shell px-6 py-5">
       <div className="flex items-center justify-between relative">
-        <div className="absolute top-5 left-8 right-8 h-px bg-white/10 -z-0" />
+        <div className="absolute top-[18px] left-6 right-6 h-px bg-white/[0.06]" />
         <motion.div
-          className="absolute top-5 left-8 h-px bg-gradient-to-r from-rook-500 to-brand-400 -z-0 origin-left"
+          className="absolute top-[18px] left-6 h-px bg-rook-400/60 origin-left"
           initial={false}
-          animate={{ width: `${(current / (STEPS.length - 1)) * 100}%`, maxWidth: "calc(100% - 4rem)" }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
+          animate={{
+            width: `${(current / (STEPS.length - 1)) * 100}%`,
+            maxWidth: "calc(100% - 3rem)",
+          }}
+          transition={{ duration: 0.4, ease: "easeOut" }}
         />
 
         {STEPS.map((step, i) => {
@@ -50,22 +53,20 @@ export default function PhaseStepper({
 
           return (
             <div key={step.id} className="flex flex-col items-center gap-2 z-10 flex-1">
-              <motion.div
+              <div
                 className={clsx(
-                  "w-10 h-10 rounded-full flex items-center justify-center border transition-colors duration-300",
-                  done && "bg-rook-500/20 border-rook-400/50 text-rook-300",
-                  active && "bg-rook-500/30 border-rook-400 text-white shadow-rook",
-                  !done && !active && "bg-surface-800 border-white/10 text-white/35"
+                  "w-9 h-9 rounded-full flex items-center justify-center border transition-colors",
+                  done && "bg-rook-500/15 border-rook-400/40 text-rook-300",
+                  active && "bg-rook-500/20 border-rook-400/60 text-white",
+                  !done && !active && "bg-white/[0.02] border-white/10 text-white/30"
                 )}
-                animate={active ? { scale: [1, 1.06, 1] } : { scale: 1 }}
-                transition={active ? { duration: 2, repeat: Infinity } : {}}
               >
-                <Icon className="w-4 h-4" />
-              </motion.div>
+                <Icon className="w-3.5 h-3.5" strokeWidth={1.75} />
+              </div>
               <span
                 className={clsx(
-                  "text-[10px] font-medium tracking-wide uppercase",
-                  active ? "text-rook-300" : done ? "text-white/55" : "text-white/30"
+                  "text-[10px] font-medium tracking-wide",
+                  active ? "text-rook-300" : done ? "text-white/50" : "text-white/25"
                 )}
               >
                 {step.label}
@@ -76,13 +77,9 @@ export default function PhaseStepper({
       </div>
 
       {phase !== "idle" && savingsTotal > 0 && (
-        <motion.p
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center text-xs text-emerald-400/90 mt-4 font-medium"
-        >
-          ${savingsTotal.toLocaleString()} in savings discovered so far
-        </motion.p>
+        <p className="text-center text-xs text-emerald-400/85 mt-4 pt-4 border-t border-white/[0.06]">
+          ${savingsTotal.toLocaleString()} in savings identified
+        </p>
       )}
     </div>
   );

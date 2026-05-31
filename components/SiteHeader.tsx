@@ -2,7 +2,6 @@
 
 import BrandLogo from "./BrandLogo";
 import WandbTraceLink from "./WandbTraceLink";
-import { AGENT_META } from "@/lib/types";
 import clsx from "clsx";
 
 interface SiteHeaderProps {
@@ -12,22 +11,18 @@ interface SiteHeaderProps {
 
 export default function SiteHeader({ phase, showNav }: SiteHeaderProps) {
   return (
-    <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-[hsl(var(--background))]/80 backdrop-blur-xl">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-        <BrandLogo size="sm" />
+    <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-[hsl(222_28%_4%/0.82)] backdrop-blur-xl supports-[backdrop-filter]:bg-[hsl(222_28%_4%/0.72)]">
+      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+        <BrandLogo size="sm" showTagline={false} />
 
         {showNav && (
-          <nav className="hidden md:flex items-center gap-1 text-xs">
+          <nav className="hidden md:flex items-center gap-1">
             {[
               { href: "#assumptions-section", label: "Assumptions" },
               { href: "#plans-section", label: "Plans" },
-              { href: "#journey-section", label: "Journey" },
+              { href: "#journey-section", label: "Itinerary" },
             ].map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="px-3 py-1.5 rounded-lg text-white/50 hover:text-white/90 hover:bg-white/5 transition-colors"
-              >
+              <a key={link.href} href={link.href} className="btn-secondary text-xs py-1.5">
                 {link.label}
               </a>
             ))}
@@ -35,14 +30,12 @@ export default function SiteHeader({ phase, showNav }: SiteHeaderProps) {
         )}
 
         <div className="flex items-center gap-3">
-          <div
+          <span
             className={clsx(
-              "hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border",
-              phase === "optimizing"
-                ? "border-rook-400/30 bg-rook-500/10 text-rook-300"
-                : phase === "results"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                  : "border-white/10 bg-white/5 text-white/45"
+              "hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border",
+              phase === "optimizing" && "border-rook-400/25 bg-rook-500/10 text-rook-300",
+              phase === "results" && "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+              phase === "idle" && "border-white/10 text-white/40"
             )}
           >
             <span
@@ -50,20 +43,11 @@ export default function SiteHeader({ phase, showNav }: SiteHeaderProps) {
                 "w-1.5 h-1.5 rounded-full",
                 phase === "optimizing" && "bg-rook-400 animate-pulse",
                 phase === "results" && "bg-emerald-400",
-                phase === "idle" && "bg-white/30"
+                phase === "idle" && "bg-white/25"
               )}
             />
-            {phase === "idle" ? "Ready" : phase === "optimizing" ? "Working" : "Complete"}
-          </div>
-
-          <div className="hidden lg:flex items-center gap-0.5 opacity-60" title="9 AI agents">
-            {Object.values(AGENT_META).slice(0, 6).map((a) => (
-              <span key={a.name} className="text-sm" title={a.name}>
-                {a.icon}
-              </span>
-            ))}
-          </div>
-
+            {phase === "idle" ? "Ready" : phase === "optimizing" ? "Processing" : "Complete"}
+          </span>
           <WandbTraceLink />
         </div>
       </div>

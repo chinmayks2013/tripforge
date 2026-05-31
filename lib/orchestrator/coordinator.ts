@@ -121,6 +121,6 @@ export class TravelCoordinator {
   }
 
   logRunComplete(request: ParsedRequest, result: OptimizationResult) {
-    flushOptimizationTrace(request, result);
+    return flushOptimizationTrace(request, result);
   }
 }

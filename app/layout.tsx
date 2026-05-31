@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, DM_Serif_Display } from "next/font/google";
+import { Plus_Jakarta_Sans, Syne } from "next/font/google";
 import "./globals.css";
 
 const sans = Plus_Jakarta_Sans({
@@ -7,16 +7,16 @@ const sans = Plus_Jakarta_Sans({
   variable: "--font-sans",
 });
 
-const display = DM_Serif_Display({
-  weight: "400",
+const display = Syne({
   subsets: ["latin"],
   variable: "--font-display",
+  weight: ["500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
-  title: "TravelRooks — Intelligent Trip Planning",
+  title: "TravelRooks — Enterprise Trip Intelligence",
   description:
-    "TravelRooks uses nine AI agents in parallel to research, optimize, and verify your trip — flights, stays, transport, and hidden savings in one plan.",
+    "AI-powered trip planning with nine specialist agents, live route research, verified pricing, and interactive itinerary optimization.",
 };
 
 export default function RootLayout({
@@ -26,7 +26,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${sans.variable} ${display.variable}`}>
-      <body className="font-sans">{children}</body>
+      <body className="font-sans text-[15px] leading-relaxed">{children}</body>
     </html>
   );
 }

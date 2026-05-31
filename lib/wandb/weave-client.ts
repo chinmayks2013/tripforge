@@ -1,7 +1,13 @@
 import { AgentId, OptimizationResult, ParsedRequest } from "../types";
 
-const PROJECT = process.env.WANDB_PROJECT ?? "chinmayks2013/tripforge";
 const DISABLED = process.env.WANDB_TRACE === "false";
+
+export function projectRef(): string {
+  const raw = process.env.WANDB_PROJECT ?? "tripforge";
+  if (raw.includes("/")) return raw;
+  const entity = process.env.WANDB_ENTITY ?? "chinmayks2013";
+  return `${entity}/${raw}`;
+}
 
 type WeaveModule = typeof import("weave");
 
@@ -13,8 +19,11 @@ export function isWeaveConfigured(): boolean {
 }
 
 export function weaveProjectUrl(): string {
-  const slug = PROJECT.includes("/") ? PROJECT : `chinmayks2013/${PROJECT}`;
-  return `https://wandb.ai/${slug}/weave`;
+  return `https://wandb.ai/${projectRef()}/weave`;
+}
+
+export function wandbProjectUrl(): string {
+  return `https://wandb.ai/${projectRef()}`;
 }
 
 async function ensureWeave(): Promise<WeaveModule | null> {
@@ -26,19 +35,14 @@ async function ensureWeave(): Promise<WeaveModule | null> {
       try {
         const weave = await import("weave");
         const apiKey = process.env.WANDB_API_KEY!;
-        await Promise.race([
-          (async () => {
-            await weave.login(apiKey);
-            await weave.init(PROJECT);
-          })(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("weave init timeout")), 4000)
-          ),
-        ]);
+        osSetApiKey(apiKey);
+        await weave.login(apiKey);
+        await weave.init(projectRef());
         weaveModule = weave;
         return true;
       } catch (err) {
-        console.warn("[TravelRooks/weave] Init skipped:", err);
+        console.warn("[TravelRooks/weave] Init failed:", err);
+        initPromise = null;
         return false;
       }
     })();
@@ -46,6 +50,11 @@ async function ensureWeave(): Promise<WeaveModule | null> {
 
   const ok = await initPromise;
   return ok ? weaveModule : null;
+}
+
+/** Mirrors Python: os.environ['WANDB_API_KEY'] = key */
+function osSetApiKey(key: string) {
+  process.env.WANDB_API_KEY = key;
 }
 
 function summarizeResult(result: OptimizationResult) {
@@ -68,45 +77,36 @@ function summarizeResult(result: OptimizationResult) {
   };
 }
 
-/** Fire-and-forget — never blocks the optimization response. */
-export function flushOptimizationTrace(
+/** Await this before closing the API stream so traces reach W&B. */
+export async function flushOptimizationTrace(
   request: ParsedRequest,
   result: OptimizationResult
-): void {
-  void (async () => {
+): Promise<void> {
+  if (!isWeaveConfigured()) return;
+
+  try {
     const weave = await ensureWeave();
     if (!weave) return;
 
-    try {
-      const traced = weave.op(
-        async (input: {
-          destination: string;
-          origin?: string;
-          groupSize: number;
-          duration?: number;
-          rawQuery: string;
-        }) => {
-          return summarizeResult(result);
-        },
-        { name: "travelrooks/coordinator/optimize" }
-      );
-
-      await Promise.race([
-        traced({
+    const traced = weave.op(
+      async () => ({
+        inputs: {
           destination: request.destination,
           origin: request.origin,
           groupSize: request.groupSize,
           duration: request.duration,
           rawQuery: request.rawQuery,
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("weave flush timeout")), 8000)
-        ),
-      ]);
-    } catch (err) {
-      console.warn("[TravelRooks/weave] Flush failed:", err);
-    }
-  })();
+        },
+        output: summarizeResult(result),
+      }),
+      { name: "travelrooks/coordinator/optimize" }
+    );
+
+    await traced();
+    console.log("[TravelRooks/weave] Trace logged:", weaveProjectUrl());
+  } catch (err) {
+    console.warn("[TravelRooks/weave] Flush failed:", err);
+  }
 }
 
 export async function logCoordinatorOp<T>(
@@ -115,24 +115,19 @@ export async function logCoordinatorOp<T>(
   fn: () => Promise<T>
 ): Promise<T> {
   const result = await fn();
-  void (async () => {
+  if (!isWeaveConfigured()) return result;
+
+  try {
     const weave = await ensureWeave();
-    if (!weave) return;
-    try {
-      const traced = weave.op(
-        async (_in: Record<string, unknown>) => result,
-        { name: `travelrooks/coordinator/${name}` }
-      );
-      await Promise.race([
-        traced(inputs),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("weave op timeout")), 5000)
-        ),
-      ]);
-    } catch {
-      /* non-fatal */
-    }
-  })();
+    if (!weave) return result;
+    const traced = weave.op(
+      async () => ({ inputs, output: result }),
+      { name: `travelrooks/coordinator/${name}` }
+    );
+    await traced();
+  } catch {
+    /* non-fatal */
+  }
   return result;
 }
 
@@ -140,24 +135,7 @@ export function logAgentDispatch(
   agentId: AgentId,
   task: { title: string; wave: number; objective: string }
 ): void {
-  void (async () => {
-    const weave = await ensureWeave();
-    if (!weave) return;
-    try {
-      const traced = weave.op(
-        async (input: Record<string, unknown>) => input,
-        { name: "travelrooks/coordinator/dispatch_task" }
-      );
-      await Promise.race([
-        traced({ agentId, ...task, status: "requested" }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("timeout")), 3000)
-        ),
-      ]);
-    } catch {
-      /* non-fatal */
-    }
-  })();
+  void logCoordinatorOp("dispatch_task", { agentId, ...task, status: "requested" }, async () => true);
 }
 
 export function logWaveComplete(
@@ -165,24 +143,7 @@ export function logWaveComplete(
   agents: AgentId[],
   savings: number
 ): void {
-  void (async () => {
-    const weave = await ensureWeave();
-    if (!weave) return;
-    try {
-      const traced = weave.op(
-        async (input: Record<string, unknown>) => input,
-        { name: "travelrooks/coordinator/wave_complete" }
-      );
-      await Promise.race([
-        traced({ wave, agents, savings, status: "complete" }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("timeout")), 3000)
-        ),
-      ]);
-    } catch {
-      /* non-fatal */
-    }
-  })();
+  void logCoordinatorOp("wave_complete", { wave, agents, savings, status: "complete" }, async () => true);
 }
 
 export async function logScrapeTrace<T>(

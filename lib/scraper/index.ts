@@ -117,7 +117,7 @@ export async function scrapeTripData(
   if (weather) sources.push({ name: "Open-Meteo", url: "https://open-meteo.com" });
   if (wiki) sources.push({ name: "Wikipedia", url: "https://wikipedia.org" });
 
-  onProgress?.("AI structuring scraped data for agents…");
+  onProgress?.("Structuring scraped route data for fare analysis…");
 
   const distanceMiles =
     originCoords != null

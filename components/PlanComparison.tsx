@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { TravelPlan, TravelStyle, STYLE_LABELS } from "@/lib/types";
 import clsx from "clsx";
+import { Backpack, Scale, Gem, Check } from "lucide-react";
 import CostBreakdown from "./CostBreakdown";
 import OpportunitiesPanel from "./OpportunitiesPanel";
 import CostAccuracyBanner from "./CostAccuracyBanner";
@@ -14,22 +15,22 @@ interface PlanComparisonProps {
 
 const STYLE_CONFIG: Record<
   TravelStyle,
-  { gradient: string; badge: string; icon: string }
+  { gradient: string; badge: string; Icon: typeof Backpack }
 > = {
   budget: {
-    gradient: "from-emerald-600/20 to-teal-600/10",
-    badge: "bg-emerald-500/20 text-emerald-300",
-    icon: "🎒",
+    gradient: "from-emerald-600/15 to-teal-600/5",
+    badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20",
+    Icon: Backpack,
   },
   balanced: {
-    gradient: "from-brand-600/20 to-cyan-600/10",
-    badge: "bg-brand-500/20 text-brand-300",
-    icon: "⚖️",
+    gradient: "from-brand-600/15 to-cyan-600/5",
+    badge: "bg-brand-500/15 text-brand-300 border border-brand-500/20",
+    Icon: Scale,
   },
   luxury: {
-    gradient: "from-amber-600/20 to-orange-600/10",
-    badge: "bg-amber-500/20 text-amber-300",
-    icon: "✨",
+    gradient: "from-amber-600/15 to-orange-600/5",
+    badge: "bg-amber-500/15 text-amber-300 border border-amber-500/20",
+    Icon: Gem,
   },
 };
 
@@ -44,31 +45,34 @@ export default function PlanComparison({ plans }: PlanComparisonProps) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {plans.map((plan) => {
           const config = STYLE_CONFIG[plan.style];
+          const { Icon } = config;
           const isSelected = plan.style === selectedStyle;
 
           return (
             <motion.button
               key={plan.id}
               onClick={() => setSelectedStyle(plan.style)}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.99 }}
               className={clsx(
-                "relative text-left rounded-2xl p-5 border transition-all duration-300",
+                "relative text-left rounded-xl p-5 border transition-all duration-200",
                 isSelected
-                  ? "border-rook-400/40 bg-gradient-to-br " + config.gradient + " agent-glow"
-                  : "border-white/10 glass hover:border-rook-400/20"
+                  ? "border-rook-400/35 bg-gradient-to-br " + config.gradient + " shadow-rook"
+                  : "border-white/[0.08] bg-white/[0.02] hover:border-white/15"
               )}
             >
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-2xl">{config.icon}</span>
-                <span className={clsx("text-xs px-2 py-0.5 rounded-full font-medium", config.badge)}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/10 flex items-center justify-center">
+                  <Icon className="w-4 h-4 text-white/60" strokeWidth={1.75} />
+                </div>
+                <span className={clsx("text-[11px] px-2 py-0.5 rounded-md font-medium", config.badge)}>
                   {STYLE_LABELS[plan.style]}
                 </span>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-white">
+                  <span className="text-2xl font-semibold text-white tracking-tight">
                     ${plan.totalOptimizedCost.toLocaleString()}
                   </span>
                   {plan.totalSavings > 0 && (
@@ -84,10 +88,11 @@ export default function PlanComparison({ plans }: PlanComparisonProps) {
                 )}
               </div>
 
-              <ul className="mt-3 space-y-1">
+              <ul className="mt-3 space-y-1.5">
                 {plan.highlights.slice(0, 3).map((h) => (
-                  <li key={h} className="text-xs text-white/50 flex items-center gap-1.5">
-                    <span className="text-emerald-400">✓</span> {h}
+                  <li key={h} className="text-xs text-white/50 flex items-start gap-2">
+                    <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" strokeWidth={2.5} />
+                    {h}
                   </li>
                 ))}
               </ul>

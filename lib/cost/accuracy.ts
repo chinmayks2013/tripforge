@@ -1,4 +1,4 @@
-import { AgentId, CostLineItem, ParsedRequest, TravelStyle } from "../types";
+import { AgentId, CostLineItem, ParsedRequest, TravelStyle, CostAuditReport } from "../types";
 import { getDestinationData } from "../parser";
 import { AgentResult } from "../agents";
 
@@ -8,19 +8,6 @@ export interface CategoryFloor {
   category: string;
   floor: number;
   source: string;
-}
-
-export interface CostAuditReport {
-  feasible: boolean;
-  minRealisticTotal: number;
-  verifiedTotal: number;
-  originalTotal: number;
-  correctionsApplied: number;
-  confidence: CostConfidence;
-  budgetGap?: number;
-  message: string;
-  categoryFloors: CategoryFloor[];
-  flags: string[];
 }
 
 const STYLE_COST_MULT: Record<TravelStyle, number> = {
@@ -145,9 +132,9 @@ export function computeLowestVerifiedTotal(
   }
 
   let coreTotal = multiCategoryTotal;
-  for (const cost of singletonBest.values()) {
+  Array.from(singletonBest.values()).forEach((cost) => {
     coreTotal += cost;
-  }
+  });
 
   let creditsApplied = 0;
   for (const item of items) {

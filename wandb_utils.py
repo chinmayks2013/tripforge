@@ -6,7 +6,15 @@ from typing import Any, Dict
 import yaml
 from dotenv import load_dotenv
 
-load_dotenv()
+_ROOT = Path(__file__).resolve().parent
+
+# Load local secrets first (same pattern as W&B docs: os.environ['WANDB_API_KEY'])
+load_dotenv(_ROOT / ".env.local")
+load_dotenv(_ROOT / ".env")
+
+_key = os.getenv("WANDB_API_KEY")
+if _key:
+    os.environ["WANDB_API_KEY"] = _key
 
 _ENV_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
@@ -24,7 +32,7 @@ def _expand_env(value: Any) -> Any:
 
 
 def load_project_config(path: str = "configs/project.yaml") -> Dict[str, Any]:
-    cfg_path = Path(path)
+    cfg_path = _ROOT / path
     if not cfg_path.exists():
         raise FileNotFoundError(f"Missing config file: {cfg_path}")
     with cfg_path.open("r", encoding="utf-8") as f:
@@ -33,7 +41,7 @@ def load_project_config(path: str = "configs/project.yaml") -> Dict[str, Any]:
     missing = [k for k in ["entity", "project"] if not cfg.get(k)]
     if missing:
         raise ValueError(
-            f"Missing {missing}. Set WANDB_ENTITY and WANDB_PROJECT in .env or your shell."
+            f"Missing {missing}. Set WANDB_ENTITY and WANDB_PROJECT in .env.local"
         )
     return cfg
 
@@ -43,6 +51,7 @@ def login_if_key_present() -> None:
 
     api_key = os.getenv("WANDB_API_KEY")
     if api_key:
+        os.environ["WANDB_API_KEY"] = api_key
         wandb.login(key=api_key)
     else:
         wandb.login()

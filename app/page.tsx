@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import clsx from "clsx";
 import ChatInput from "@/components/ChatInput";
 import AgentDashboard from "@/components/AgentDashboard";
 import PlanComparison from "@/components/PlanComparison";
@@ -9,7 +10,15 @@ import AssumptionsChecklist from "@/components/AssumptionsChecklist";
 import LocationPrompt from "@/components/LocationPrompt";
 import ScrapeFeed from "@/components/ScrapeFeed";
 import SiteHeader from "@/components/SiteHeader";
+import SiteFooter from "@/components/SiteFooter";
 import PhaseStepper from "@/components/PhaseStepper";
+import SectionHeading from "@/components/SectionHeading";
+import HeroFeatures from "@/components/HeroFeatures";
+import AnimatedHeroDestinations from "@/components/AnimatedHeroDestinations";
+import ParticleField from "@/components/ParticleField";
+import AgentOrchestrationHub from "@/components/AgentOrchestrationHub";
+import LiveCommandBar from "@/components/LiveCommandBar";
+import ResultsStatCards from "@/components/ResultsStatCards";
 import TaskOrchestratorPanel, {
   TaskPlanItem,
 } from "@/components/TaskOrchestratorPanel";
@@ -28,7 +37,7 @@ import { createInitialAgentStatuses } from "@/lib/agents";
 const TripJourney = dynamic(() => import("@/components/TripJourney"), {
   ssr: false,
   loading: () => (
-    <div className="glass rounded-2xl p-8 text-center text-white/40 text-sm">
+    <div className="section-shell p-10 text-center text-white/40 text-sm animate-pulse">
       Loading journey map…
     </div>
   ),
@@ -100,7 +109,13 @@ export default function Home() {
           setAgents((prev) =>
             prev.map((a) =>
               a.id === event.agentId
-                ? { ...a, status: "complete", progress: 100, savingsFound: savings ?? a.savingsFound, lastUpdate: Date.now() }
+                ? {
+                    ...a,
+                    status: "complete",
+                    progress: 100,
+                    savingsFound: savings ?? a.savingsFound,
+                    lastUpdate: Date.now(),
+                  }
                 : a
             )
           );
@@ -148,16 +163,6 @@ export default function Home() {
 
       case "scrape_progress": {
         setIsScraping(true);
-        const { message } = event.data as { message?: string };
-        if (message) {
-          setAgents((prev) =>
-            prev.map((a) =>
-              a.id === "routing"
-                ? { ...a, status: "searching", message, progress: Math.min(90, a.progress + 15) }
-                : a
-            )
-          );
-        }
         break;
       }
 
@@ -311,16 +316,52 @@ export default function Home() {
   };
 
   const totalSavings = agents.reduce((s, a) => s + (a.savingsFound ?? 0), 0);
+  const agentsActive = agents.filter(
+    (a) => a.status === "searching" || a.status === "optimizing"
+  ).length;
+  const agentsComplete = agents.filter((a) => a.status === "complete").length;
+  const dataSources = scrapedData?.sources?.length ?? 0;
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="min-h-screen flex flex-col relative overflow-x-hidden">
+      {/* Ambient background */}
+      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
+        <div className="absolute inset-x-0 top-0 h-[640px] mesh-grid opacity-70" />
+        {(phase === "idle" || phase === "optimizing") && (
+          <>
+            <div className="absolute top-[-10%] left-[15%] w-[420px] h-[420px] rounded-full bg-rook-500/10 aurora-blob" />
+            <div
+              className="absolute top-[5%] right-[10%] w-[360px] h-[360px] rounded-full bg-indigo-500/8 aurora-blob"
+              style={{ animationDelay: "-4s" }}
+            />
+            <ParticleField />
+          </>
+        )}
+      </div>
+
+      <LiveCommandBar
+        visible={phase === "optimizing"}
+        agentsActive={agentsActive}
+        agentsComplete={agentsComplete}
+        totalAgents={agents.length}
+        savingsTotal={totalSavings}
+        activeWave={activeWave}
+        isScraping={isScraping}
+        dataSources={dataSources}
+      />
+
       <SiteHeader
         phase={phase}
         showNav={phase === "results" && !!result?.route}
       />
 
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-10 flex-1 w-full">
-        {/* Hero */}
+      <div
+        className={clsx(
+          "relative z-10 max-w-6xl mx-auto px-4 py-10 sm:py-14 space-y-14 flex-1 w-full",
+          phase === "optimizing" && "pb-32"
+        )}
+      >
+        {/* Hero & search */}
         <section className="space-y-8">
           <AnimatePresence mode="wait">
             {phase === "idle" && (
@@ -329,61 +370,64 @@ export default function Home() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
-                className="text-center space-y-5 pt-4"
+                transition={{ duration: 0.45 }}
+                className="text-center space-y-6 max-w-3xl mx-auto pt-4 sm:pt-8"
               >
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-rook-400/25 bg-rook-500/10 text-rook-300 text-xs font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rook-400 animate-pulse" />
-                  9 AI agents · live data · verified pricing
-                </div>
-                <h2 className="font-display text-4xl sm:text-5xl lg:text-[3.25rem] leading-tight text-white max-w-3xl mx-auto">
-                  Plan smarter trips with{" "}
-                  <span className="gradient-text">TravelRooks</span>
-                </h2>
-                <p className="text-white/50 max-w-xl mx-auto text-sm sm:text-base leading-relaxed">
-                  Describe your trip once. Our agents research live routes, compare
-                  stays and transport, surface hidden savings, and verify every price
-                  against real-world cost floors.
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.1 }}
+                  className="section-label"
+                >
+                  Enterprise trip intelligence
+                </motion.p>
+                <h1 className="font-display text-3xl sm:text-4xl lg:text-[2.85rem] font-bold leading-[1.12] tracking-tight text-white">
+                  Optimize every trip with{" "}
+                  <span className="gradient-text">multi-agent research</span>
+                </h1>
+                <p className="text-white/45 text-sm sm:text-base leading-relaxed max-w-xl mx-auto">
+                  Describe your journey once. A live web scrape gathers route data, then
+                  nine specialist agents run sequentially to compare costs and surface savings.
                 </p>
+                <AnimatedHeroDestinations />
               </motion.div>
             )}
+
             {phase === "optimizing" && (
               <motion.div
                 key="working"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="text-center pt-2"
+                className="text-center max-w-lg mx-auto"
               >
-                <h2 className="text-xl sm:text-2xl font-semibold text-white/90">
-                  Building your optimized itinerary…
-                </h2>
-                <p className="text-sm text-white/45 mt-2">
-                  {isScraping
-                    ? "Pulling live weather, routes, and destination data"
-                    : "Agents are negotiating the best combination of savings"}
-                </p>
+                <SectionHeading
+                  label="In progress"
+                  title="Building your optimized itinerary"
+                  description={
+                    isScraping
+                      ? "Live web scrape — geocoding, weather, and route distance"
+                      : "Running agents one at a time in sequential order"
+                  }
+                />
               </motion.div>
             )}
+
             {phase === "results" && result && (
               <motion.div
                 key="done"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="text-center pt-2"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-6"
               >
-                <h2 className="text-xl sm:text-2xl font-semibold text-white/90">
-                  Your trip to{" "}
-                  <span className="text-rook-400 capitalize">
-                    {result.request.destination}
-                  </span>{" "}
-                  is ready
-                </h2>
-                {result.totalSavingsAcrossAgents > 0 && (
-                  <p className="text-sm text-emerald-400/90 mt-2 font-medium">
-                    ${result.totalSavingsAcrossAgents.toLocaleString()} total savings
-                    applied across all categories
-                  </p>
-                )}
+                <div className="text-center max-w-lg mx-auto">
+                  <SectionHeading
+                    label="Complete"
+                    title={`Your trip to ${result.request.destination} is ready`}
+                    description="Review your optimized plans, verified pricing, and interactive itinerary below"
+                  />
+                </div>
+                <ResultsStatCards result={result} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -409,146 +453,169 @@ export default function Home() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className="grid grid-cols-2 lg:grid-cols-4 gap-3 max-w-3xl mx-auto pt-2"
+              className="pt-2"
             >
-              {[
-                { value: "9", label: "Specialist agents", sub: "Parallel optimization" },
-                { value: "3", label: "Plan styles", sub: "Budget · Balanced · Luxury" },
-                { value: "Live", label: "Route data", sub: "OpenStreetMap + weather" },
-                { value: "✓", label: "Verified costs", sub: "No inflated savings" },
-              ].map((stat) => (
-                <div
-                  key={stat.label}
-                  className="glass rounded-xl p-4 text-center border-white/[0.06]"
-                >
-                  <div className="text-2xl font-display text-rook-400">{stat.value}</div>
-                  <div className="text-xs font-medium text-white/75 mt-1">{stat.label}</div>
-                  <div className="text-[10px] text-white/35 mt-0.5">{stat.sub}</div>
-                </div>
-              ))}
+              <HeroFeatures />
             </motion.div>
           )}
 
           {phase === "results" && result?.route && (
-            <div className="flex justify-center gap-2 text-xs flex-wrap">
-              <a
-                href="#plans-section"
-                className="glass px-4 py-2 rounded-lg text-white/60 hover:text-white hover:border-rook-400/30 transition-colors"
-              >
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex justify-center gap-3 flex-wrap"
+            >
+              <a href="#plans-section" className="btn-secondary text-xs">
                 View plans
               </a>
-              <a
-                href="#journey-section"
-                className="px-4 py-2 rounded-lg bg-rook-500/15 border border-rook-400/30 text-rook-300 hover:bg-rook-500/25 transition-colors"
-              >
-                Journey map →
+              <a href="#journey-section" className="btn-primary text-xs">
+                Open itinerary
               </a>
-            </div>
+            </motion.div>
           )}
         </section>
 
-        {/* Live scrape feed */}
+        {/* Agent orchestration hub */}
         <AnimatePresence>
-          {(isScraping || scrapedData) && (phase === "optimizing" || phase === "results") && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
+          {(phase === "optimizing" || phase === "results") && (
+            <motion.section
+              initial={{ opacity: 0, scale: 0.97, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
             >
-              <ScrapeFeed data={scrapedData} isLoading={isScraping} />
-            </motion.div>
+              <AgentOrchestrationHub
+                agents={agents}
+                activeWave={activeWave}
+                isActive
+              />
+            </motion.section>
           )}
         </AnimatePresence>
 
-        {/* Assumptions Checklist — visible as soon as assumptions are ready */}
+        {/* Live data feed */}
         <AnimatePresence>
-          {assumptions.length > 0 && (phase === "optimizing" || phase === "results") && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              id="assumptions-section"
-            >
-              <AssumptionsChecklist
-                assumptions={assumptions}
-                onUpdate={handleAssumptionUpdate}
-                isUpdating={isRefining}
-              />
-            </motion.div>
-          )}
+          {(isScraping || scrapedData) &&
+            (phase === "optimizing" || phase === "results") && (
+              <motion.section
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <SectionHeading
+                  label="Live data"
+                  title="Web research (pre-pipeline)"
+                  description="OpenStreetMap, weather, and Wikipedia — scraped before agents run"
+                  align="left"
+                />
+                <ScrapeFeed data={scrapedData} isLoading={isScraping} />
+              </motion.section>
+            )}
+        </AnimatePresence>
+
+        {/* Assumptions */}
+        <AnimatePresence>
+          {assumptions.length > 0 &&
+            (phase === "optimizing" || phase === "results") && (
+              <motion.section
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                id="assumptions-section"
+              >
+                <SectionHeading
+                  label="Trip parameters"
+                  title="Assumptions checklist"
+                  description="Confirm or adjust what we inferred from your request"
+                  align="left"
+                />
+                <AssumptionsChecklist
+                  assumptions={assumptions}
+                  onUpdate={handleAssumptionUpdate}
+                  isUpdating={isRefining}
+                />
+              </motion.section>
+            )}
         </AnimatePresence>
 
         {/* Task orchestrator */}
         <AnimatePresence>
-          {taskPlan.length > 0 && (phase === "optimizing" || phase === "results") && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <TaskOrchestratorPanel tasks={taskPlan} activeWave={activeWave} />
-            </motion.div>
-          )}
+          {taskPlan.length > 0 &&
+            (phase === "optimizing" || phase === "results") && (
+              <motion.section
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <SectionHeading
+                  label="Orchestration"
+                  title="Sequential agent steps"
+                  description="One agent at a time — flight through cost verification"
+                  align="left"
+                />
+                <TaskOrchestratorPanel tasks={taskPlan} activeWave={activeWave} />
+              </motion.section>
+            )}
         </AnimatePresence>
 
-        {/* Agent Dashboard */}
+        {/* Agent dashboard */}
         <AnimatePresence>
           {(phase === "optimizing" || phase === "results") && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
             >
+              <SectionHeading
+                label="Agents"
+                title="Specialist agent status"
+                description="Each agent runs in order after the previous completes"
+                align="left"
+              />
               <AgentDashboard
                 agents={agents}
                 isActive={phase === "optimizing" || phase === "results"}
               />
-            </motion.div>
+            </motion.section>
           )}
         </AnimatePresence>
 
         {/* Plans */}
         <AnimatePresence>
           {result && result.plans.length > 0 && phase === "results" && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-4"
+              className="space-y-6"
               id="plans-section"
             >
-              <div className="text-center">
-                <h2 className="font-display text-2xl text-white">
-                  Optimized Plans
-                </h2>
-                <p className="text-sm text-white/40 mt-1">
-                  Three travel styles — pick the balance of cost and comfort that fits you
-                </p>
-              </div>
+              <SectionHeading
+                label="Recommendations"
+                title="Optimized travel plans"
+                description="Budget, balanced, and luxury — from a single optimization pass"
+              />
               <PlanComparison plans={result.plans} />
-            </motion.div>
+            </motion.section>
           )}
         </AnimatePresence>
 
-        {/* Step-by-step journey with satellite map — scroll here after plans */}
+        {/* Journey */}
         <AnimatePresence>
           {result?.route && phase === "results" && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
+              transition={{ delay: 0.1 }}
               id="journey-section"
             >
+              <SectionHeading
+                label="Itinerary"
+                title="Step-by-step journey"
+                description="Interactive route map with weather, stops, and daily breakdown"
+                align="left"
+              />
               <TripJourney route={result.route} userLocation={userLocation} />
-            </motion.div>
+            </motion.section>
           )}
         </AnimatePresence>
-
       </div>
 
-      <footer className="border-t border-white/[0.06] mt-12">
-        <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-white/35">
-          <span className="font-display text-white/50">
-            Travel<span className="text-rook-400">Rooks</span>
-          </span>
-          <span>Intelligent multi-agent trip planning · MIT Hackathon 2026</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }
